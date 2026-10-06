@@ -21,7 +21,7 @@ body {
 
 h1,
 h2 {
-  color: #0f5c5c;
+  color: #1b2a4a;
   line-height: 1.2;
   margin: 0 0 0.75rem;
 }
@@ -39,11 +39,11 @@ p {
 }
 
 a {
-  color: #0f5c5c;
+  color: #1b2a4a;
 }
 
 a:hover {
-  color: #137373;
+  color: #2c4370;
 }
 
 .container {

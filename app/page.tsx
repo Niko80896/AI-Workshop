@@ -9,6 +9,15 @@ export default function Home() {
       </header>
 
       <section>
+        <h2>This semester</h2>
+        <ul>
+          <li>Finishing my last year at Shidler</li>
+          <li>Working at my job</li>
+          <li>Surfing the North Shore once the season starts</li>
+        </ul>
+      </section>
+
+      <section>
         <h2>About</h2>
         <p>
           I&apos;m a senior at UH Manoa, where I study business management. My
@@ -18,17 +27,8 @@ export default function Home() {
         </p>
       </section>
 
-      <section>
-        <h2>This semester</h2>
-        <ul>
-          <li>Completing my strategic management capstone with a full analysis of a local Hawaii business.</li>
-          <li>Leading a four-person team project on improving operations for a campus organization.</li>
-          <li>Polishing my resume and practicing case interviews ahead of spring recruiting.</li>
-        </ul>
-      </section>
-
       <footer className="footer">
-        <p>© {year} Niko Banto</p>
+        <p>© {year} Niko Banto · Built with Claude Code</p>
       </footer>
     </main>
   );
