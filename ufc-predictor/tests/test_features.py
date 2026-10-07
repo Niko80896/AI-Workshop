@@ -56,7 +56,7 @@ def test_prediction_state_matches_training_rows():
     prep = prepare_fights(fights)
     for idx in prep.index[prep["date"] == pd.Timestamp(target_date)]:
         r = prep.loc[idx]
-        row = builder.matchup(r.key_a, r.key_b, r.date, r.five_round, r.title_fight)
+        row = builder.matchup(r.key_a, r.key_b, r.date, r.five_round, r.title_fight, r.weight_class)
         expected = full.loc[idx, list(row)]
         pd.testing.assert_series_equal(pd.Series(row, dtype=object).astype(float),
                                        expected.astype(float), check_names=False)
@@ -177,3 +177,23 @@ def test_dwcs_counts_as_history_not_ufc_experience():
     assert x["a_elo"] > without.iloc[0]["a_elo"]          # Elo credited to the ufcstats key
     assert x["a_days_since_last"] == (pd.Timestamp("2021-01-01") - pd.Timestamp("2020-08-01")).days
     assert "name:Prospect X" in b.states                  # DWCS-only fighter keyed by name
+
+
+def test_weight_class_movement_and_durability():
+    """Moving up from lightweight to welterweight gives +15 lbs; sub losses / decisions tracked."""
+    fights, fighters = make_data(n_dates=1, fights_per_date=1)
+    f = pd.concat([fights] * 3, ignore_index=True)
+    f["fight_id"], f["date"] = ["a", "b", "c"], ["2020-01-01", "2020-06-01", "2020-09-01"]
+    f["weight_class"] = ["Lightweight", "Catch Weight", "Welterweight"]
+    f["result_a"], f["result_b"] = ["L", "W", "W"], ["W", "L", "L"]
+    f["method"] = ["Submission", "Decision - Split", "KO/TKO"]
+    x = build_features(f, fighters)[0]
+    assert np.isnan(x.loc[0, "a_weight_change"])           # debut: no previous division
+    assert np.isnan(x.loc[1, "a_weight_change"])           # catch weight bout: unknown limit
+    assert x.loc[2, "a_weight_change"] == 15               # last known division was lightweight
+    assert x.loc[2, "division_lbs"] == 170 and x.loc[2, "womens"] == 0
+    assert x.loc[2, "a_sub_losses"] == 1 and x.loc[2, "a_dec_rate"] == pytest.approx(0.5)
+    _, b = build_features(f, fighters)
+    key = x.loc[0, "key_a"]
+    row = b.matchup(key, x.loc[0, "key_b"], "2021-01-01", weight_class="Women's Flyweight")
+    assert row["a_weight_change"] == 125 - 170 and row["womens"] == 1

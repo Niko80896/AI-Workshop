@@ -32,7 +32,7 @@ import numpy as np
 import pandas as pd
 
 from ufc_common import (
-    DATA_DIR, DWCS_CSV, FIGHTERS_CSV, FIGHTS_CSV, fight_seconds, method_group,
+    DATA_DIR, DIVISION_LBS, DWCS_CSV, FIGHTERS_CSV, FIGHTS_CSV, fight_seconds, method_group,
     name_resolver, scheduled_rounds, url_id,
 )
 
@@ -49,20 +49,22 @@ FIGHTER_FEATURES = [
     # grappling
     "td_per15", "td_acc", "td_def", "sub_per15", "ctrl_pct", "opp_ctrl_pct",
     # finishing / durability
-    "ko_wins", "sub_wins", "finish_rate", "ko_losses",
+    "ko_wins", "sub_wins", "finish_rate", "ko_losses", "sub_losses", "dec_rate",
     # form
     "last3_win_rate", "streak", "last3_sig_diff_pm",
     # activity
     "days_since_last",
     # physical
     "age", "height", "reach", "southpaw",
+    # weight class movement: this bout's division limit minus the previous bout's (lbs)
+    "weight_change",
     # rating
     "elo", "opp_elo_avg",
 ]
 DIFF_FEATURES = [f"diff_{f}" for f in FIGHTER_FEATURES]
 # Antisymmetric extras: +1 if A is the southpaw facing an orthodox B, -1 for the reverse.
 MATCHUP_FEATURES = ["stance_southpaw_vs_orthodox"]
-CONTEXT_FEATURES = ["five_round", "title_fight"]
+CONTEXT_FEATURES = ["five_round", "title_fight", "division_lbs", "womens"]
 ANTISYMMETRIC = DIFF_FEATURES + MATCHUP_FEATURES
 MODEL_FEATURES = ANTISYMMETRIC + CONTEXT_FEATURES
 
@@ -94,6 +96,9 @@ class FighterState:
     ko_wins: int = 0
     sub_wins: int = 0
     ko_losses: int = 0
+    sub_losses: int = 0
+    decisions: int = 0
+    last_division: float = np.nan     # division limit (lbs) of the most recent bout with a known division
     stat_secs: float = 0.0            # minutes denominator: only fights with recorded stats
     own: dict = field(default_factory=lambda: dict.fromkeys(_SUM_STATS, 0.0))
     opp: dict = field(default_factory=lambda: dict.fromkeys(_SUM_STATS, 0.0))
@@ -141,12 +146,23 @@ class FighterState:
             "sub_wins": self.sub_wins,
             "finish_rate": _div(self.ko_wins + self.sub_wins, all_fights),
             "ko_losses": self.ko_losses,
+            "sub_losses": self.sub_losses,
+            "dec_rate": _div(self.decisions, all_fights),
             "last3_win_rate": (sum(r == "W" for r in last3) / len(last3)) if last3 else np.nan,
             "streak": streak,
             "last3_sig_diff_pm": _div(sum(d for d, _ in self.recent_diffs) * 60, rd_secs),
             "days_since_last": (date - self.last_date).days if self.last_date is not None else np.nan,
             "opp_elo_avg": _div(self.opp_elo_sum, all_fights),
         }
+
+
+def division_lbs(weight_class) -> pd.Series:
+    """Division weight limit in lbs (NaN for catch/open weight or unknown)."""
+    return pd.Series(weight_class).astype(str).str.strip().map(DIVISION_LBS).astype(float)
+
+
+def womens(weight_class) -> pd.Series:
+    return pd.Series(weight_class).astype(str).str.contains("Women", case=False).astype(int)
 
 
 def prepare_fights(fights: pd.DataFrame) -> pd.DataFrame:
@@ -160,6 +176,8 @@ def prepare_fights(fights: pd.DataFrame) -> pd.DataFrame:
     f["method_group"] = f["method"].map(method_group)
     f["five_round"] = (f["time_format"].map(scheduled_rounds) == 5).astype(int)
     f["title_fight"] = f["title_fight"].astype(str).str.lower().isin(["true", "1"]).astype(int)
+    f["division_lbs"] = division_lbs(f["weight_class"])
+    f["womens"] = womens(f["weight_class"])
     core = [f"{p}_{c}" for p in ("a", "b") for c in ("sig_landed", "sig_att", "td_landed", "td_att", "ctrl_sec")]
     f["has_stats"] = f[core].notna().all(axis=1) & f["duration_sec"].gt(0)
     f["label"] = f["result_a"].map({"W": 1.0, "L": 0.0})  # draws / NC -> NaN (not trained on)
@@ -182,6 +200,7 @@ def prepare_dwcs(dwcs: pd.DataFrame, fighters: pd.DataFrame | None) -> pd.DataFr
     d["duration_sec"] = np.nan
     d["has_stats"] = False
     d["five_round"], d["title_fight"], d["label"] = 0, 0, np.nan
+    d["division_lbs"], d["womens"] = division_lbs(d["weight_class"]), womens(d["weight_class"])
     d["promotion"] = "DWCS"
     return d.sort_values(["date", "fight_id"], kind="stable").reset_index(drop=True)
 
@@ -202,10 +221,11 @@ class FeatureBuilder:
                 }
 
     # ---------------------------------------------------------------- features
-    def fighter_features(self, key: str, date: pd.Timestamp) -> dict:
-        """All per-fighter features for ``key`` as of just before ``date``."""
+    def fighter_features(self, key: str, date: pd.Timestamp, division: float = np.nan) -> dict:
+        """All per-fighter features for ``key`` as of just before ``date`` (bout at ``division`` lbs)."""
         st = self.states.get(key) or FighterState()
         feats = st.features(date)
+        feats["weight_change"] = division - st.last_division  # NaN if either is unknown
         phys = self.physical.get(key, {})
         dob = phys.get("dob", pd.NaT)
         feats["age"] = (date - dob).days / 365.25 if pd.notna(dob) else np.nan
@@ -217,16 +237,19 @@ class FeatureBuilder:
         feats["elo"] = self.elo.get(key, ELO_START)
         return feats
 
-    def matchup(self, key_a: str, key_b: str, date, five_round: int = 0, title_fight: int = 0) -> dict:
+    def matchup(self, key_a: str, key_b: str, date, five_round: int = 0, title_fight: int = 0,
+                weight_class: str | None = None) -> dict:
         """Model-ready feature row for A vs B on ``date`` (plus raw per-fighter values)."""
         date = pd.Timestamp(date)
-        fa, fb = self.fighter_features(key_a, date), self.fighter_features(key_b, date)
+        div = float(division_lbs([weight_class]).iloc[0])
+        fa, fb = self.fighter_features(key_a, date, div), self.fighter_features(key_b, date, div)
         row = {f"diff_{k}": fa[k] - fb[k] for k in FIGHTER_FEATURES}
         sa, sb = fa.pop("_stance"), fb.pop("_stance")
         row["stance_southpaw_vs_orthodox"] = (
             float(sa == "Southpaw" and sb == "Orthodox") - float(sa == "Orthodox" and sb == "Southpaw")
             if sa and sb else np.nan)
         row["five_round"], row["title_fight"] = int(five_round), int(title_fight)
+        row["division_lbs"], row["womens"] = div, int(womens([weight_class]).iloc[0])
         row.update({f"a_{k}": v for k, v in fa.items()})
         row.update({f"b_{k}": v for k, v in fb.items()})
         return row
@@ -263,6 +286,10 @@ class FeatureBuilder:
             st.sub_wins += r.method_group == "SUB"
         elif res == "L":
             st.ko_losses += r.method_group == "KO/TKO"
+            st.sub_losses += r.method_group == "SUB"
+        st.decisions += r.method_group == "DEC"
+        if not np.isnan(r.division_lbs):
+            st.last_division = r.division_lbs
         if r.has_stats:
             st.stat_secs += r.duration_sec
             for s in _SUM_STATS:
@@ -298,7 +325,8 @@ def build_features(fights: pd.DataFrame, fighters: pd.DataFrame | None = None,
     rows = []
     for date, group in stream.groupby("date", sort=True):
         for r in group[group["promotion"] == "UFC"].itertuples(index=False):
-            rows.append(builder.matchup(r.key_a, r.key_b, date, r.five_round, r.title_fight))  # 1) pre-date state
+            rows.append(builder.matchup(r.key_a, r.key_b, date, r.five_round, r.title_fight,
+                                        r.weight_class))                                  # 1) pre-date state
         builder.update(group)                                                                  # 2) then fold in
     feats = pd.DataFrame(rows, index=f.index)
     meta = f[["fight_id", "date", "event_name", "fighter_a", "fighter_b", "key_a", "key_b",
