@@ -1,0 +1,7 @@
+__pycache__/
+.pytest_cache/
+data/cache/
+data/external/
+data/models/
+data/*.csv
+charts/*.png
