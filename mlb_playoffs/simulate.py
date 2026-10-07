@@ -360,7 +360,16 @@ class PlayoffSimulator:
         last = dict(self.last_pitched)
         days = self.calendar[(rnd, "MLB" if rnd == "WS" else self.league_of(hi))]
         out = []
+        played = self.played(rnd, a, b)
         for i in range(BEST_OF[rnd]):
+            if i < len(played):   # completed: show the real starters and date
+                gm = played[i]
+                d = pd.Timestamp(gm["date"])
+                last[gm["home_sp"]] = last[gm["away_sp"]] = d.toordinal()
+                out.append({"game": i + 1, "date": d.date(), "home": gm["home"], "away": gm["away"],
+                            "home_sp": gm["home_sp"], "away_sp": gm["away_sp"], "p_home": float("nan"),
+                            "sp_rest": (5, 5)})
+                continue
             day = max(days[i], self.day0)
             home, away = (hi, lo) if HOME_PATTERN[rnd][i] else (lo, hi)
             hsp, hrest = self.pick_starter(home, rnd, i + 1, day, last)

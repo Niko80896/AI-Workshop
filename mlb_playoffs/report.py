@@ -239,11 +239,12 @@ def cmd_series(args):
             r = played[g["game"] - 1]
             tag = f"   FINAL {display(r['away'])} {r['away_score']:.0f} - {display(r['home'])} {r['home_score']:.0f}"
         print(f"  G{g['game']} {g['date']}  {display(g['away']):4s} @ {display(g['home']):4s}  "
-              f"{pname(g['away_sp']):22s} vs {pname(g['home_sp']):22s}  {display(g['home'])} {pct(g['p_home'])}{tag}")
-    g1 = games[0]
+              f"{pname(g['away_sp']):22s} vs {pname(g['home_sp']):22s}  "
+              f"{display(g['home']) + ' ' + pct(g['p_home']) if not tag else ''}{tag}")
+    g1 = next((g for g in games if g["p_home"] == g["p_home"]), games[0])  # next unplayed game
     row, _ = sim.state.matchup(g1["home"], g1["away"], g1["home_sp"], g1["away_sp"], sim.day0, is_post=1,
                                rest=(1, 1), out=sim.out, sp_rest=g1["sp_rest"])
-    print(f"\nTop factors (Game 1, {display(g1['home'])} perspective):")
+    print(f"\nTop factors (Game {g1['game']}, {display(g1['home'])} perspective):")
     print("\n".join(explain_lines(sim, row, g1["home"], g1["away"])))
     print("\nHead-to-head:")
     print(comparison_table(sim, hi, lo, sim.rotation_for(hi)[0], sim.rotation_for(lo)[0]).to_string(index=False))
