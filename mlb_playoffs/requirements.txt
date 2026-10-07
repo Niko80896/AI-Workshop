@@ -1,0 +1,9 @@
+numpy>=2.0
+pandas>=2.2
+scikit-learn>=1.5
+matplotlib>=3.8
+pyarrow>=15
+pytest>=8
+# Optional sources (used when their hosts are reachable)
+pybaseball>=2.2.7
+MLB-StatsAPI>=1.7

@@ -150,6 +150,7 @@ class LeagueState:
         self.pit = Decayed(HL_PITCHER, len(PV))       # key player
         self.league_pit = Decayed(HL_PITCHER, len(PV))
         self.starts = Decayed(HL_PITCHER, 3)          # starts, outs, pitches
+        self.team_starts = Decayed(HL_RELIEF, 1)      # key (team, player): recent starts
         self.relief = Decayed(HL_RELIEF, 1)           # key (team, player): relief appearances
         self.team_relief = Decayed(HL_TEAM, len(PV))  # team bullpen aggregate
         self.last_relief: dict = {}                   # (team, player) -> day
@@ -210,7 +211,7 @@ class LeagueState:
         fip = (13 * HR + 3 * (BB + HBP) - 2 * K) / ip_per_bf + c
         xfip = (13 * FB * hr_per_fb + 3 * (BB + HBP) - 2 * K) / ip_per_bf + c
         st = self.starts.get(pid, day)
-        depth = shrink(st[1], st[0], 15.5, 4) / 3  # innings per start, prior ~5.1
+        depth = shrink(st[1], st[0], 13.5, 4) / 3  # innings per start, prior 4.5
         return {"fip": fip, "xfip": xfip, "kbb": K - BB, "k": K, "era": 27 * er / outs,
                 "depth": depth, "bf": bf, "throws": self.throws.get(pid, "R")}
 
@@ -221,11 +222,22 @@ class LeagueState:
         return min(day - app[-1][0] - 1, 10)
 
     def rotation(self, team, day, n=4, out: frozenset = frozenset()) -> list[str]:
-        """Projected playoff rotation: recent starters ranked by regressed FIP."""
-        cands = [p for p in self.team_starters[team]
-                 if self.last_start.get((team, p), -999) >= day - 35 and p not in out]
-        cands.sort(key=lambda p: self.pitcher_line(p, day)["fip"])
-        return cands[:n]
+        """Projected playoff rotation, best first.
+
+        Candidates started for the team in the last 35 days, have several
+        recent starts for it, and are true starters (>= 4.4 innings per start,
+        regressed), which excludes openers. Ranked by regressed FIP with a
+        small credit for depth; thin staffs are filled by most recent starts.
+        """
+        recent = [p for p in self.team_starters[team]
+                  if self.last_start.get((team, p), -999) >= day - 35 and p not in out]
+        lines = {p: self.pitcher_line(p, day) for p in recent}
+        real = sorted((p for p in recent if lines[p]["depth"] >= 4.4
+                       and self.team_starts.get((team, p), day)[0] >= 1.5),
+                      key=lambda p: lines[p]["fip"] - 0.3 * (lines[p]["depth"] - 5))
+        rest = sorted((p for p in recent if p not in real),
+                      key=lambda p: -self.last_start.get((team, p), -999))
+        return (real + rest)[:n]
 
     def bullpen(self, team, day, top_n=5, out: frozenset = frozenset()) -> dict:
         """Top-N relievers by regressed FIP among those used recently, plus fatigue."""
@@ -425,6 +437,7 @@ class LeagueState:
             self.appearances[pid].append((day, p.get("pitches", 0), team, int(p.get("gs", 0))))
             if p.get("gs", 0) == 1:
                 self.starts.add(pid, day, [1, p.get("outs", 0), p.get("pitches", 0)])
+                self.team_starts.add((team, pid), day, [1])
                 self.team_starters[team].add(pid)
                 self.last_start[(team, pid)] = day
             else:

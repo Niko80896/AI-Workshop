@@ -1,0 +1,21 @@
+{
+  "season": 2025,
+  "model": "through_2025_regular",
+  "seeds": {
+    "AL": ["TOR", "SEA", "CLE", "NYA", "BOS", "DET"],
+    "NL": ["MIL", "PHI", "LAN", "CHN", "SDN", "CIN"]
+  },
+  "calendar": {
+    "WC":  {"AL": ["2025-09-30", "2025-10-01", "2025-10-02"],
+            "NL": ["2025-09-30", "2025-10-01", "2025-10-02"]},
+    "DS":  {"AL": ["2025-10-04", "2025-10-05", "2025-10-07", "2025-10-08", "2025-10-10"],
+            "NL": ["2025-10-04", "2025-10-06", "2025-10-08", "2025-10-09", "2025-10-11"]},
+    "LCS": {"AL": ["2025-10-12", "2025-10-13", "2025-10-15", "2025-10-16", "2025-10-17", "2025-10-19", "2025-10-20"],
+            "NL": ["2025-10-13", "2025-10-14", "2025-10-16", "2025-10-17", "2025-10-18", "2025-10-20", "2025-10-21"]},
+    "WS":  {"MLB": ["2025-10-24", "2025-10-25", "2025-10-27", "2025-10-28", "2025-10-29", "2025-10-31", "2025-11-01"]}
+  },
+  "rotations": {},
+  "probables": [],
+  "min_rest_days": 4,
+  "notes": "Seeds are the actual 2025 seeds. 'rotations' maps team -> ordered list of starters (names or Retrosheet ids); omitted teams use the auto-projected top 4. 'probables' entries {round, game, team, pitcher} override one game's starter. Results come from Retrosheet for 2025."
+}

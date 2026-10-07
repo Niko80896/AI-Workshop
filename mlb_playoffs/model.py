@@ -96,7 +96,9 @@ class EnsembleModel:
         scaler, lr = self.lr[0], self.lr[-1]
         x = np.array([[row[f] for f in self.features]])
         z = (x - scaler.mean_) / scaler.scale_
-        contrib = (lr.coef_[0] * z[0])
+        contrib = lr.coef_[0] * z[0]
+        # 'Postseason game' only shifts home-field edge; it isn't a team factor.
+        contrib[self.features.index("is_postseason")] = 0.0
         order = np.argsort(-np.abs(contrib))[:top]
         return [(FEATURE_LABELS[self.features[i]], float(contrib[i]), float(x[0, i])) for i in order]
 
@@ -266,4 +268,6 @@ def main():
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
-    main()
+    # Run through the importable module so pickled models reference model.EnsembleModel.
+    import model
+    model.main()

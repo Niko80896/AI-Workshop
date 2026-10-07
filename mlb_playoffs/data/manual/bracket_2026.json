@@ -1,0 +1,14 @@
+{
+  "season": 2026,
+  "model": "production",
+  "seeds": {
+    "AL": ["", "", "", "", "", ""],
+    "NL": ["", "", "", "", "", ""]
+  },
+  "calendar": {},
+  "rotations": {},
+  "probables": [],
+  "results_csv": "results_2026.csv",
+  "min_rest_days": 4,
+  "notes": "Fill in seeds 1-6 per league with Retrosheet team codes (e.g. NYA, LAN, SDN) or common names. Leave calendar empty to use the standard template starting the day after as-of. Enter completed games in data/manual/results_2026.csv. NOTE: 2026 regular-season stats are not available offline, so team/player ratings come from data through 2025 unless 2026 data is added."
+}
