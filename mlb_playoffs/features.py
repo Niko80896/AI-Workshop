@@ -121,11 +121,19 @@ class Unavailable:
     players: frozenset = frozenset()
 
 
+def _elo_start() -> float:
+    return 1500.0
+
+
+def _recent_apps() -> deque:
+    return deque(maxlen=8)
+
+
 class LeagueState:
     """Everything known about the league as of a given day."""
 
     def __init__(self):
-        self.elo: dict[str, float] = defaultdict(lambda: 1500.0)
+        self.elo: dict[str, float] = defaultdict(_elo_start)
         self.elo_season: dict[str, int] = {}
         self.team_runs = Decayed(HL_TEAM, 3)          # RS, RA, G
         self.team_form = Decayed(HL_FORM, 2)          # RD, G
@@ -148,7 +156,7 @@ class LeagueState:
         self.team_relievers: dict = defaultdict(set)
         self.team_starters: dict = defaultdict(set)
         self.last_start: dict = {}                    # (team, player) -> day
-        self.appearances: dict = defaultdict(lambda: deque(maxlen=8))  # player -> (day, pitches)
+        self.appearances: dict = defaultdict(_recent_apps)  # player -> (day, pitches, team, gs)
         self.team_last_game: dict = {}
         self.day = 0
 
@@ -438,6 +446,21 @@ class LeagueState:
 
 def day_number(d) -> int:
     return pd.Timestamp(d).toordinal()
+
+
+def state_as_of(as_of) -> LeagueState:
+    """League state on the morning of ``as_of`` (cached to data/models/)."""
+    import pickle
+    as_of = pd.Timestamp(as_of)
+    path = C.MODEL_DIR / f"state_{as_of.date()}.pkl"
+    src = C.DATA_DIR / "games.csv"
+    if path.exists() and path.stat().st_mtime > src.stat().st_mtime:
+        with open(path, "rb") as f:
+            return pickle.load(f)
+    st = run_state(*load_inputs(), until=as_of)
+    with open(path, "wb") as f:
+        pickle.dump(st, f)
+    return st
 
 
 def load_inputs():
