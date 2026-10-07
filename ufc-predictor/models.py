@@ -4,6 +4,10 @@ Every model is fit on both orientations of each fight (see
 :func:`features.symmetrize`) and predicts ``P(A wins)`` as the average of
 ``P(A beats B)`` and ``1 - P(B beats A)``, so swapping the corner order can
 never change the answer.
+
+``MethodModel`` does the same for the 6-way outcome (A or B, by KO/TKO,
+submission or decision): the mirrored prediction's classes are swapped
+(``a_ko`` <-> ``b_ko`` ...) before averaging.
 """
 from __future__ import annotations
 
@@ -15,7 +19,8 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
-from features import ANTISYMMETRIC, MODEL_FEATURES, symmetrize
+from features import (ANTISYMMETRIC, METHOD_CLASSES, METHOD_FEATURES, METHOD_FLIP, MODEL_FEATURES,
+                      symmetrize)
 
 
 def mirror(X: pd.DataFrame) -> pd.DataFrame:
@@ -134,3 +139,69 @@ class GBMModel(SymmetricModel):
 
     def _contrib(self, X):
         return self.model.predict(X, pred_contrib=True)[:, :-1]  # drop the bias column
+
+
+_FLIP_IDX = [METHOD_CLASSES.index(METHOD_FLIP[c]) for c in METHOD_CLASSES]
+
+
+class MethodModel:
+    """6-way method-of-victory model: P(a_ko, a_sub, a_dec, b_ko, b_sub, b_dec).
+
+    ``kind`` is ``"prior"`` (training-set method frequencies, split evenly
+    between the two corners), ``"logistic"`` (multinomial) or ``"lightgbm"``.
+    """
+
+    def __init__(self, kind: str = "logistic", features: list[str] | None = None,
+                 C: float = 0.01, n_estimators: int = 300):
+        self.kind, self.C, self.n_estimators = kind, C, n_estimators
+        self.features = list(features or METHOD_FEATURES)
+        self.name = {"prior": "Method frequencies", "logistic": "Multinomial logistic",
+                     "lightgbm": "LightGBM multiclass"}[kind]
+
+    @staticmethod
+    def _xy(df: pd.DataFrame, features):
+        s = symmetrize(df[df["method_class"].notna()])
+        return s[features], s["method_class"].map(METHOD_CLASSES.index).to_numpy()
+
+    def _new_lgbm(self, n):
+        return lgb.LGBMClassifier(objective="multiclass", n_estimators=n, random_state=0,
+                                  **GBMModel.DEFAULT_PARAMS)
+
+    def fit(self, df: pd.DataFrame) -> "MethodModel":
+        X, y = self._xy(df, self.features)
+        if self.kind == "prior":
+            self.prior = np.bincount(y, minlength=len(METHOD_CLASSES)) / len(y)
+        elif self.kind == "logistic":
+            self.pipe = make_pipeline(
+                SimpleImputer(strategy="constant", fill_value=0.0, keep_empty_features=True),
+                StandardScaler(), LogisticRegression(C=self.C, max_iter=3000))
+            self.pipe.fit(X, y)
+        else:
+            self.model = self._new_lgbm(self.n_estimators).fit(X, y)
+        return self
+
+    def best_iterations(self, train: pd.DataFrame, valid: pd.DataFrame, max_rounds: int = 2000) -> int:
+        """Early-stopped tree count on a later validation block (LightGBM only)."""
+        Xt, yt = self._xy(train, self.features)
+        Xv, yv = self._xy(valid, self.features)
+        m = self._new_lgbm(max_rounds)
+        m.fit(Xt, yt, eval_set=[(Xv, yv)], callbacks=[lgb.early_stopping(100, verbose=False)])
+        return int(m.best_iteration_ or max_rounds)
+
+    def _raw(self, X: pd.DataFrame) -> np.ndarray:
+        if self.kind == "prior":
+            return np.tile(self.prior, (len(X), 1))
+        est = self.pipe if self.kind == "logistic" else self.model
+        return est.predict_proba(X)
+
+    def predict_proba(self, X: pd.DataFrame) -> np.ndarray:
+        """Orientation-averaged probabilities, columns in ``METHOD_CLASSES`` order."""
+        X = X[self.features]
+        return 0.5 * (self._raw(X) + self._raw(mirror(X))[:, _FLIP_IDX])
+
+
+def combine(p_win: np.ndarray, P_method: np.ndarray) -> np.ndarray:
+    """P(A wins) x P(method | A wins) and likewise for B, from a 6-way method model."""
+    a = P_method[:, :3] / P_method[:, :3].sum(axis=1, keepdims=True)
+    b = P_method[:, 3:] / P_method[:, 3:].sum(axis=1, keepdims=True)
+    return np.hstack([p_win[:, None] * a, (1 - p_win)[:, None] * b])

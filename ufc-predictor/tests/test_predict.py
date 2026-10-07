@@ -57,3 +57,38 @@ def test_fighter_index_resolution(world):
     assert idx.resolve("Prospect 1").key == "name:Prospect 1"          # DWCS-only fighter
     new = idx.resolve("Completely Unknown Person")
     assert new.key.startswith("name:") and "debut" in new.note
+
+
+@pytest.mark.parametrize("kind", ["prior", "logistic", "lightgbm"])
+def test_method_model_symmetric_and_normalised(world, kind):
+    from features import METHOD_CLASSES, METHOD_FLIP
+    from models import MethodModel
+    feats = world[3]
+    mm = MethodModel(kind, n_estimators=30).fit(feats)
+    P = mm.predict_proba(feats)
+    np.testing.assert_allclose(P.sum(axis=1), 1, atol=1e-9)
+    Pm = mm.predict_proba(mirror(feats[mm.features]))
+    flip = [METHOD_CLASSES.index(METHOD_FLIP[c]) for c in METHOD_CLASSES]
+    np.testing.assert_allclose(Pm, P[:, flip], atol=1e-12)
+
+
+def test_predict_with_odds_and_method(world):
+    from features import MODEL_FEATURES, ODDS_FEATURES, add_market
+    from models import MethodModel
+    from predict import american_to_market_logit
+    fights, fighters, dwcs, feats, builder = world
+    rng = np.random.default_rng(0)
+    odds = pd.DataFrame({"fight_id": feats["fight_id"],
+                         "p_market_a": np.clip(0.5 + 0.3 * (feats["label"].fillna(0.5) - 0.5)
+                                               + rng.normal(0, 0.1, len(feats)), 0.05, 0.95)})
+    fm = add_market(feats, odds)
+    om = LogisticModel(features=MODEL_FEATURES + ODDS_FEATURES).fit(fm)
+    mm = MethodModel("logistic").fit(feats)
+    fav = predict_matchup(om, builder, "f001", "f002", "2030-01-01", market_logit=american_to_market_logit(-400, 300),
+                          method_model=mm, weight_class="Lightweight")
+    dog = predict_matchup(om, builder, "f001", "f002", "2030-01-01", market_logit=american_to_market_logit(300, -400),
+                          method_model=mm, weight_class="Lightweight")
+    assert fav["p_a"] > dog["p_a"]                                    # market moves the prediction the right way
+    assert sum(fav["methods"].values()) == pytest.approx(1)
+    assert sum(v for k, v in fav["methods"].items() if k.startswith("a_")) == pytest.approx(fav["p_a"])
+    assert american_to_market_logit(-110, -110) == pytest.approx(0)

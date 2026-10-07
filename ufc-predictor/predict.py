@@ -9,6 +9,12 @@ rates; their physical attributes and any DWCS record are still used.
 Usage::
 
     python predict.py "Fighter A" "Fighter B" [--five-rounds] [--title] [--date YYYY-MM-DD]
+                      [--weight-class "Lightweight"] [--odds -150 +130]
+
+``--odds`` takes both fighters' American moneylines (A first) and switches to
+the model that also uses the betting market. Without ``--weight-class`` the
+division is inferred from the fighters' most recent bouts (the heavier one if
+they differ). Output also includes a method-of-victory breakdown.
 
 A fighter can also be given by ufcstats profile URL or id to disambiguate
 shared names.
@@ -26,8 +32,10 @@ import joblib
 import numpy as np
 import pandas as pd
 
-from features import (FIGHTER_FEATURES, FeatureBuilder, build_features, fighter_key, load_data,
-                      prepare_dwcs)
+from features import (FIGHTER_FEATURES, METHOD_CLASSES, FeatureBuilder, build_features, fighter_key,
+                      load_data, prepare_dwcs)
+from import_odds import american_to_prob
+from models import combine
 from ufc_common import norm_name, url_id
 
 MODEL_PATH = Path(__file__).resolve().parent / "models" / "model.joblib"
@@ -48,6 +56,8 @@ LABELS = {
     "elo": "Elo rating", "opp_elo_avg": "Avg. opponent Elo",
     "stance_southpaw_vs_orthodox": "Southpaw vs orthodox matchup",
     "five_round": "Five-round fight", "title_fight": "Title fight",
+    "sub_losses": "Submission losses", "dec_rate": "Decision rate", "weight_change": "Weight-class change (lbs)",
+    "division_lbs": "Division (lbs)", "womens": "Women's division", "market_logit": "Betting market (implied %)",
 }
 
 
@@ -128,12 +138,33 @@ class FighterIndex:
         return FighterMatch(key, cands[key], note)
 
 
+def american_to_market_logit(ml_a: float, ml_b: float) -> float:
+    """Vig-free log-odds that A wins from two American moneylines."""
+    pa, pb = american_to_prob([ml_a, ml_b])
+    p = pa / (pa + pb)
+    return float(np.log(p / (1 - p)))
+
+
+def default_weight_class(builder: FeatureBuilder, key_a: str, key_b: str) -> str | None:
+    """Most recent division of the two fighters (the heavier one if they differ)."""
+    cands = [(st.last_division, st.last_weight_class) for st in
+             (builder.states.get(key_a), builder.states.get(key_b)) if st and st.last_weight_class]
+    return max(cands)[1] if cands else None
+
+
 def predict_matchup(model, builder: FeatureBuilder, key_a: str, key_b: str, date, five_rounds=False,
-                    title=False, top: int = 6) -> dict:
-    """Orientation-averaged win probabilities and the top contributing factors."""
-    row = builder.matchup(key_a, key_b, date, int(five_rounds), int(title))
+                    title=False, top: int = 6, weight_class: str | None = None,
+                    market_logit: float | None = None, method_model=None) -> dict:
+    """Orientation-averaged win probabilities, top contributing factors and (optionally) method split."""
+    row = builder.matchup(key_a, key_b, date, int(five_rounds), int(title), weight_class)
+    if market_logit is not None:
+        row["market_logit"] = market_logit
     X = pd.DataFrame([row])
     p_a = float(model.predict_proba(X)[0])
+    methods = None
+    if method_model is not None:
+        P = combine(np.array([p_a]), method_model.predict_proba(X))[0]
+        methods = dict(zip(METHOD_CLASSES, P))
     contrib = model.contributions(X).iloc[0]
     # Collinear features (e.g. wins/losses/fights) are summed into one factor so
     # their individual signs, which split weight arbitrarily, are never shown alone.
@@ -157,12 +188,14 @@ def predict_matchup(model, builder: FeatureBuilder, key_a: str, key_b: str, date
             va, vb = (row.get(f"a_{base}"), row.get(f"b_{base}")) if base in FIGHTER_FEATURES else (row[feat], None)
         factors.append({"feature": feat, "label": label, "a": va, "b": vb,
                         "log_odds": c, "favors": "a" if c > 0 else "b"})
-    return {"p_a": p_a, "p_b": 1.0 - p_a, "factors": factors, "row": row}
+    return {"p_a": p_a, "p_b": 1.0 - p_a, "factors": factors, "row": row, "methods": methods}
 
 
 def _fmt(v, feat):
     if isinstance(v, str):
         return v
+    if feat == "market_logit":
+        return f"{100 / (1 + np.exp(-v)):.0f}%"
     if v is None or (isinstance(v, float) and np.isnan(v)):
         return "n/a"
     if feat.endswith(("acc", "def", "rate", "share", "pct")) and abs(v) <= 1:
@@ -179,6 +212,9 @@ def main(argv=None) -> None:
     ap.add_argument("--five-rounds", action="store_true", help="scheduled for five rounds")
     ap.add_argument("--title", action="store_true", help="title fight")
     ap.add_argument("--date", default=dt_date.today().isoformat(), help="fight date (default: today)")
+    ap.add_argument("--weight-class", default=None, help='e.g. "Lightweight", "Women\'s Flyweight"')
+    ap.add_argument("--odds", nargs=2, type=float, metavar=("ODDS_A", "ODDS_B"), default=None,
+                    help="American moneylines for A and B, e.g. --odds -150 +130")
     ap.add_argument("--top", type=int, default=6, help="number of factors to show")
     args = ap.parse_args(argv)
 
@@ -199,10 +235,19 @@ def main(argv=None) -> None:
         if m.note:
             print(f"[{m.name}] {m.note}", file=sys.stderr)
 
-    res = predict_matchup(bundle["model"], builder, a.key, b.key, args.date, args.five_rounds, args.title, args.top)
+    wc = args.weight_class or default_weight_class(builder, a.key, b.key)
+    model, model_name, mlogit = bundle["model"], bundle["name"], None
+    if args.odds:
+        if bundle.get("odds_model") is None:
+            sys.exit("--odds given but the saved model has no odds model: run import_odds.py, then train.py")
+        model, model_name = bundle["odds_model"], "Logistic regression + betting market"
+        mlogit = american_to_market_logit(*args.odds)
+    res = predict_matchup(model, builder, a.key, b.key, args.date, args.five_rounds, args.title, args.top,
+                          weight_class=wc, market_logit=mlogit, method_model=bundle.get("method_model"))
     row = res["row"]
-    print(f"\n{a.name} vs {b.name}  ({'5' if args.five_rounds else '3'} rounds{', title fight' if args.title else ''})")
-    print(f"model: {bundle['name']} (trained through {bundle['trained_through']})\n")
+    print(f"\n{a.name} vs {b.name}  ({wc or 'division unknown'}, {'5' if args.five_rounds else '3'} rounds"
+          f"{', title fight' if args.title else ''})")
+    print(f"model: {model_name} (trained through {bundle['trained_through']})\n")
     w = max(len(a.name), len(b.name))
     for m, p, side in ((a, res["p_a"], "a"), (b, res["p_b"], "b")):
         rec = f"UFC {int(row[f'{side}_wins'])}-{int(row[f'{side}_losses'])}"
@@ -210,6 +255,12 @@ def main(argv=None) -> None:
             rec += f", DWCS {int(row[f'{side}_dwcs_wins'])}-{int(row[f'{side}_dwcs_fights'] - row[f'{side}_dwcs_wins'])}"
         debut = "  (UFC debut)" if row[f"{side}_n_fights"] == 0 else ""
         print(f"  {m.name:<{w}}  {100 * p:5.1f}%   [{rec}, Elo {row[f'{side}_elo']:.0f}]{debut}")
+    if res["methods"]:
+        print("\nMethod of victory:")
+        for m, side in ((a, "a"), (b, "b")):
+            parts = "   ".join(f"{lab} {100 * res['methods'][f'{side}_{k}']:4.1f}%"
+                               for k, lab in (("ko", "KO/TKO"), ("sub", "SUB"), ("dec", "DEC")))
+            print(f"  {m.name:<{w}}  {parts}")
     print("\nTop factors (log-odds contribution):")
     for f in res["factors"]:
         who = a.name if f["favors"] == "a" else b.name

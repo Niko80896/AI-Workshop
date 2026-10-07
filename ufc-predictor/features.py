@@ -65,8 +65,17 @@ DIFF_FEATURES = [f"diff_{f}" for f in FIGHTER_FEATURES]
 # Antisymmetric extras: +1 if A is the southpaw facing an orthodox B, -1 for the reverse.
 MATCHUP_FEATURES = ["stance_southpaw_vs_orthodox"]
 CONTEXT_FEATURES = ["five_round", "title_fight", "division_lbs", "womens"]
-ANTISYMMETRIC = DIFF_FEATURES + MATCHUP_FEATURES
-MODEL_FEATURES = ANTISYMMETRIC + CONTEXT_FEATURES
+# Betting-market log-odds that A wins (vig removed). Only used by the optional odds model.
+ODDS_FEATURES = ["market_logit"]
+ANTISYMMETRIC = DIFF_FEATURES + MATCHUP_FEATURES + ODDS_FEATURES
+MODEL_FEATURES = DIFF_FEATURES + MATCHUP_FEATURES + CONTEXT_FEATURES
+# Symmetric "how much finishing is in this fight" totals (A + B) for the method model.
+SUM_BASES = ["slpm", "sapm", "kd_per15", "td_per15", "sub_per15", "ctrl_pct", "ko_wins", "sub_wins",
+             "ko_losses", "sub_losses", "dec_rate", "finish_rate"]
+SUM_FEATURES = [f"sum_{f}" for f in SUM_BASES]
+METHOD_FEATURES = MODEL_FEATURES + SUM_FEATURES
+METHOD_CLASSES = ["a_ko", "a_sub", "a_dec", "b_ko", "b_sub", "b_dec"]
+METHOD_FLIP = {c: ("b" if c[0] == "a" else "a") + c[1:] for c in METHOD_CLASSES}
 
 # Running sums kept per fighter, for "own" and "opp" (what the opponent did to them).
 _SUM_STATS = ["kd", "sig_landed", "sig_att", "td_landed", "td_att", "sub_att", "ctrl_sec",
@@ -99,6 +108,7 @@ class FighterState:
     sub_losses: int = 0
     decisions: int = 0
     last_division: float = np.nan     # division limit (lbs) of the most recent bout with a known division
+    last_weight_class: str | None = None
     stat_secs: float = 0.0            # minutes denominator: only fights with recorded stats
     own: dict = field(default_factory=lambda: dict.fromkeys(_SUM_STATS, 0.0))
     opp: dict = field(default_factory=lambda: dict.fromkeys(_SUM_STATS, 0.0))
@@ -244,6 +254,7 @@ class FeatureBuilder:
         div = float(division_lbs([weight_class]).iloc[0])
         fa, fb = self.fighter_features(key_a, date, div), self.fighter_features(key_b, date, div)
         row = {f"diff_{k}": fa[k] - fb[k] for k in FIGHTER_FEATURES}
+        row.update({f"sum_{k}": fa[k] + fb[k] for k in SUM_BASES})
         sa, sb = fa.pop("_stance"), fb.pop("_stance")
         row["stance_southpaw_vs_orthodox"] = (
             float(sa == "Southpaw" and sb == "Orthodox") - float(sa == "Orthodox" and sb == "Southpaw")
@@ -289,7 +300,7 @@ class FeatureBuilder:
             st.sub_losses += r.method_group == "SUB"
         st.decisions += r.method_group == "DEC"
         if not np.isnan(r.division_lbs):
-            st.last_division = r.division_lbs
+            st.last_division, st.last_weight_class = r.division_lbs, str(r.weight_class).strip()
         if r.has_stats:
             st.stat_secs += r.duration_sec
             for s in _SUM_STATS:
@@ -331,7 +342,9 @@ def build_features(fights: pd.DataFrame, fighters: pd.DataFrame | None = None,
     feats = pd.DataFrame(rows, index=f.index)
     meta = f[["fight_id", "date", "event_name", "fighter_a", "fighter_b", "key_a", "key_b",
               "weight_class", "method_group", "result_a", "label"]]
-    return pd.concat([meta, feats], axis=1), builder
+    out = pd.concat([meta, feats], axis=1)
+    out["method_class"] = method_class(out["label"], out["method_group"])
+    return out, builder
 
 
 def symmetrize(df: pd.DataFrame) -> pd.DataFrame:
@@ -341,10 +354,34 @@ def symmetrize(df: pd.DataFrame) -> pd.DataFrame:
     view of A vs B consistent with B vs A.
     """
     flipped = df.copy()
-    flipped[ANTISYMMETRIC] = -df[ANTISYMMETRIC]
+    cols = [c for c in ANTISYMMETRIC if c in df]
+    flipped[cols] = -df[cols]
     if "label" in df:
         flipped["label"] = 1.0 - df["label"]
+    if "method_class" in df:
+        flipped["method_class"] = df["method_class"].map(METHOD_FLIP)
     return pd.concat([df.assign(orientation=0), flipped.assign(orientation=1)], ignore_index=True)
+
+
+def method_class(label: pd.Series, method_grp: pd.Series) -> pd.Series:
+    """6-way outcome from A's view (``a_ko`` ... ``b_dec``); NaN for draws, NC, DQ and other."""
+    m = method_grp.map({"KO/TKO": "ko", "SUB": "sub", "DEC": "dec"})
+    side = label.map({1.0: "a", 0.0: "b"})
+    return (side + "_" + m).where(side.notna() & m.notna())
+
+
+def add_market(feats: pd.DataFrame, odds: pd.DataFrame | None) -> pd.DataFrame:
+    """Join vig-free market probabilities (``import_odds.py``) and the ``market_logit`` feature."""
+    out = feats.copy()
+    if odds is None or not len(odds):
+        out["p_market_a"] = np.nan
+    else:
+        cols = ["fight_id", "p_market_a"] + [f"p_market_{c}" for c in METHOD_CLASSES]
+        out = out.merge(odds.reindex(columns=cols), on="fight_id", how="left")
+        out.index = feats.index
+    p = out["p_market_a"].clip(1e-4, 1 - 1e-4)
+    out["market_logit"] = np.log(p / (1 - p))
+    return out
 
 
 def load_data() -> tuple[pd.DataFrame, pd.DataFrame | None, pd.DataFrame | None]:

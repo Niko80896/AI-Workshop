@@ -4,7 +4,7 @@ import pandas as pd
 import pytest
 
 from conftest import ROOT
-from features import (ANTISYMMETRIC, CONTEXT_FEATURES, MODEL_FEATURES, FeatureBuilder,
+from features import (ANTISYMMETRIC, CONTEXT_FEATURES, MODEL_FEATURES, SUM_FEATURES, FeatureBuilder,
                       build_features, prepare_fights, symmetrize)
 from synthetic import make_data, make_dwcs, scramble_from
 
@@ -134,9 +134,14 @@ def test_symmetrize_flips_antisymmetric_features_only():
     s = symmetrize(feats)
     n = len(feats)
     a, b = s.iloc[:n].reset_index(drop=True), s.iloc[n:].reset_index(drop=True)
-    _assert_same(b[ANTISYMMETRIC], -a[ANTISYMMETRIC])
-    _assert_same(b[CONTEXT_FEATURES], a[CONTEXT_FEATURES])
+    anti = [c for c in ANTISYMMETRIC if c in feats]
+    _assert_same(b[anti], -a[anti])
+    _assert_same(b[CONTEXT_FEATURES + SUM_FEATURES], a[CONTEXT_FEATURES + SUM_FEATURES])
     assert ((a["label"] + b["label"]) == 1).all()
+    m = a["method_class"].notna()
+    assert (a.loc[m, "method_class"].str[0] != b.loc[m, "method_class"].str[0]).all()
+    assert (a.loc[m, "method_class"].str[2:] == b.loc[m, "method_class"].str[2:]).all()
+    assert ((a.loc[m, "method_class"].str[0] == "a") == (a.loc[m, "label"] == 1)).all()
 
 
 def _with_dwcs(seed=2):

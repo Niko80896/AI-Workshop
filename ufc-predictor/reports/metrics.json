@@ -3,8 +3,7 @@
   "n_train": 7056,
   "n_test": 1451,
   "logistic_C": 0.003,
-  "lightgbm_trees": 195,
-  "best_model": "Logistic regression",
+  "lightgbm_trees": 167,
   "metrics": {
     "Elo baseline": {
       "accuracy": 0.5609924190213645,
@@ -13,16 +12,112 @@
       "n_fights": 1451
     },
     "Logistic regression": {
-      "accuracy": 0.647829083390765,
-      "log_loss": 0.6371686898021749,
-      "brier": 0.2230918107803931,
+      "accuracy": 0.6505858028945555,
+      "log_loss": 0.6371372406498871,
+      "brier": 0.22306343224070696,
       "n_fights": 1451
     },
     "LightGBM": {
-      "accuracy": 0.6505858028945555,
-      "log_loss": 0.6393063807253978,
-      "brier": 0.22388185085550308,
+      "accuracy": 0.6457615437629222,
+      "log_loss": 0.6413611841691321,
+      "brier": 0.22478798529147387,
       "n_fights": 1451
     }
-  }
+  },
+  "best_model": "Logistic regression",
+  "odds_metrics": {
+    "Betting market (vig-free)": {
+      "accuracy": 0.697289156626506,
+      "log_loss": 0.5815651277667396,
+      "brier": 0.19860549392757673,
+      "n_fights": 996
+    },
+    "Logistic regression (no odds)": {
+      "accuracy": 0.6586345381526104,
+      "log_loss": 0.6320450492635108,
+      "brier": 0.2208240429773284,
+      "n_fights": 996
+    },
+    "Logistic + market odds": {
+      "accuracy": 0.6997991967871486,
+      "log_loss": 0.5793551281304478,
+      "brier": 0.19780431801422474,
+      "n_fights": 996
+    },
+    "Elo baseline": {
+      "accuracy": 0.5617469879518072,
+      "log_loss": 0.6781422003773038,
+      "brier": 0.24269185807769442,
+      "n_fights": 996
+    }
+  },
+  "odds_logistic_C": 0.01,
+  "n_train_with_odds": 5897,
+  "method_props_metrics": {
+    "Betting market props (vig-free)": {
+      "log_loss_6way": 1.5393815126089134,
+      "accuracy_6way": 0.39144385026737966,
+      "accuracy_method": 0.5433155080213904,
+      "n_fights": 935
+    },
+    "Logistic regression x Method frequencies": {
+      "log_loss_6way": 1.633784432017363,
+      "accuracy_6way": 0.34010695187165774,
+      "accuracy_method": 0.5176470588235295,
+      "n_fights": 935
+    },
+    "Logistic regression x Multinomial logistic": {
+      "log_loss_6way": 1.5695842611434552,
+      "accuracy_6way": 0.3433155080213904,
+      "accuracy_method": 0.5336898395721925,
+      "n_fights": 935
+    },
+    "Logistic regression x LightGBM multiclass": {
+      "log_loss_6way": 1.563896012641247,
+      "accuracy_6way": 0.35294117647058826,
+      "accuracy_method": 0.5304812834224599,
+      "n_fights": 935
+    }
+  },
+  "method_metrics": {
+    "Method frequencies": {
+      "log_loss_6way": 1.7121957630442264,
+      "accuracy_6way": 0.27002762430939226,
+      "accuracy_method": 0.494475138121547,
+      "n_fights": 1448
+    },
+    "Logistic regression x Method frequencies": {
+      "log_loss_6way": 1.655697452273571,
+      "accuracy_6way": 0.3149171270718232,
+      "accuracy_method": 0.494475138121547,
+      "n_fights": 1448
+    },
+    "Multinomial logistic": {
+      "log_loss_6way": 1.591302733164723,
+      "accuracy_6way": 0.324585635359116,
+      "accuracy_method": 0.5220994475138122,
+      "n_fights": 1448
+    },
+    "Logistic regression x Multinomial logistic": {
+      "log_loss_6way": 1.5852242953956093,
+      "accuracy_6way": 0.3328729281767956,
+      "accuracy_method": 0.524171270718232,
+      "n_fights": 1448
+    },
+    "LightGBM multiclass": {
+      "log_loss_6way": 1.5861307067358879,
+      "accuracy_6way": 0.3349447513812155,
+      "accuracy_method": 0.5145027624309392,
+      "n_fights": 1448
+    },
+    "Logistic regression x LightGBM multiclass": {
+      "log_loss_6way": 1.5810232190580646,
+      "accuracy_6way": 0.3349447513812155,
+      "accuracy_method": 0.518646408839779,
+      "n_fights": 1448
+    }
+  },
+  "method_logistic_C": 0.001,
+  "method_lightgbm_trees": 111,
+  "best_method_model": "LightGBM multiclass"
 }
