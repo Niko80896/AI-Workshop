@@ -1,0 +1,28 @@
+{
+  "test_start": "2024-01-01",
+  "n_train": 7056,
+  "n_test": 1451,
+  "logistic_C": 0.003,
+  "lightgbm_trees": 195,
+  "best_model": "Logistic regression",
+  "metrics": {
+    "Elo baseline": {
+      "accuracy": 0.5609924190213645,
+      "log_loss": 0.6812629862299864,
+      "brier": 0.24403948330429215,
+      "n_fights": 1451
+    },
+    "Logistic regression": {
+      "accuracy": 0.647829083390765,
+      "log_loss": 0.6371686898021749,
+      "brier": 0.2230918107803931,
+      "n_fights": 1451
+    },
+    "LightGBM": {
+      "accuracy": 0.6505858028945555,
+      "log_loss": 0.6393063807253978,
+      "brier": 0.22388185085550308,
+      "n_fights": 1451
+    }
+  }
+}

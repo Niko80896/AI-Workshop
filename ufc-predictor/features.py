@@ -37,7 +37,7 @@ from ufc_common import (
 )
 
 ELO_START = 1500.0
-ELO_K = 40.0
+ELO_K = 80.0  # chosen by pre-2024 Elo log loss (40: .6836, 80: .6821, 120: .6856)
 
 # Per-fighter pre-fight features (each enters the model as ``diff_<name>`` = A - B).
 FIGHTER_FEATURES = [
