@@ -64,7 +64,7 @@ def test_fight_page_without_stats_is_nan():
 def test_fighter_page_ignores_career_stats():
     f = scrape.parse_fighter_page(read("fighter.html"), "http://ufcstats.com/fighter-details/aaaa1111")
     assert f == {"fighter_id": "aaaa1111", "fighter_url": "http://ufcstats.com/fighter-details/aaaa1111",
-                 "name": "Natalia Silva", "height_in": 64.0, "reach_in": 65.0,
+                 "name": "Natalia Silva", "height_in": 64.0, "weight_lbs": 125.0, "reach_in": 65.0,
                  "stance": "Orthodox", "dob": "1997-07-03"}
 
 

@@ -6,7 +6,7 @@ import pytest
 from conftest import ROOT
 from features import (ANTISYMMETRIC, CONTEXT_FEATURES, MODEL_FEATURES, FeatureBuilder,
                       build_features, prepare_fights, symmetrize)
-from synthetic import make_data, scramble_from
+from synthetic import make_data, make_dwcs, scramble_from
 
 FEATURE_COLS = [c for c in build_features(*make_data(n_dates=3))[0].columns
                 if c in MODEL_FEATURES or c[:2] in ("a_", "b_")]
@@ -137,3 +137,43 @@ def test_symmetrize_flips_antisymmetric_features_only():
     _assert_same(b[ANTISYMMETRIC], -a[ANTISYMMETRIC])
     _assert_same(b[CONTEXT_FEATURES], a[CONTEXT_FEATURES])
     assert ((a["label"] + b["label"]) == 1).all()
+
+
+def _with_dwcs(seed=2):
+    fights, fighters = make_data()
+    dates = sorted(fights["date"].unique())[::3]
+    return fights, fighters, make_dwcs(fighters, [pd.Timestamp(d) - pd.Timedelta(days=7) for d in dates], seed=seed)
+
+
+def test_no_leakage_with_dwcs_history():
+    """Scrambling UFC *and* DWCS results on/after a date leaves earlier features unchanged."""
+    fights, fighters, dwcs = _with_dwcs()
+    cutoff = pd.Timestamp(sorted(fights["date"].unique())[25])
+    base, _ = build_features(fights, fighters, dwcs)
+    dw2 = dwcs.copy()
+    late = pd.to_datetime(dw2["date"]) >= cutoff
+    dw2.loc[late, "result_a"] = "W"
+    dw2.loc[late, "result_b"] = "L"
+    dw2.loc[late, ["fighter_a", "fighter_b"]] = dw2.loc[late, ["fighter_b", "fighter_a"]].values
+    scr, _ = build_features(scramble_from(fights, cutoff), fighters, dw2)
+    upto = base["date"] <= cutoff
+    _assert_same(base.loc[upto, FEATURE_COLS], scr.loc[upto, FEATURE_COLS])
+    assert len(base) == len(fights)  # DWCS bouts are history only, never rows
+
+
+def test_dwcs_counts_as_history_not_ufc_experience():
+    fights, fighters = make_data(n_dates=1, fights_per_date=1)
+    ufc = fights.assign(date="2021-01-01")
+    name_a = ufc.loc[0, "fighter_a"]
+    dwcs = pd.DataFrame([{
+        "fight_id": "d1", "event_name": "DWCS", "date": "2020-08-01", "weight_class": "Lightweight",
+        "method": "KO (head kick)", "end_round": 1, "end_time": "0:30", "time_format": "3 Rnd (5-5-5)",
+        "fighter_a": name_a.upper(), "fighter_b": "Prospect X", "result_a": "W", "result_b": "L", "source_url": ""}])
+    without, _ = build_features(ufc, fighters)
+    with_, b = build_features(ufc, fighters, dwcs)
+    x = with_.iloc[0]
+    assert x["a_n_fights"] == 0 and x["a_dwcs_fights"] == 1 and x["a_dwcs_wins"] == 1
+    assert x["a_ko_wins"] == 1 and x["a_streak"] == 1 and x["a_finish_rate"] == 1
+    assert x["a_elo"] > without.iloc[0]["a_elo"]          # Elo credited to the ufcstats key
+    assert x["a_days_since_last"] == (pd.Timestamp("2021-01-01") - pd.Timestamp("2020-08-01")).days
+    assert "name:Prospect X" in b.states                  # DWCS-only fighter keyed by name

@@ -34,7 +34,7 @@ from urllib3.util.retry import Retry
 from ufc_common import (
     DATA_DIR, FIGHT_COLS, FIGHTER_COLS, FIGHTERS_CSV, FIGHTS_CSV, clean_stance,
     is_missing, parse_clock, parse_date, parse_height, parse_int, parse_of,
-    parse_reach, parse_weight_class, url_id, STAT_COLS,
+    parse_reach, parse_weight, parse_weight_class, url_id, STAT_COLS,
 )
 
 log = logging.getLogger("scrape")
@@ -213,7 +213,7 @@ def parse_fight_page(html: str, fight_url: str) -> dict:
 
 
 def parse_fighter_page(html: str, fighter_url: str) -> dict:
-    """Parse height, reach, stance and DOB from a fighter page (career stats ignored)."""
+    """Parse height, weight, reach, stance and DOB from a fighter page (career stats ignored)."""
     soup = BeautifulSoup(html, "lxml")
     info = {}
     for li in soup.select("li.b-list__box-list-item"):
@@ -226,6 +226,7 @@ def parse_fighter_page(html: str, fighter_url: str) -> dict:
         "fighter_url": fighter_url,
         "name": _text(soup.select_one("span.b-content__title-highlight")),
         "height_in": parse_height(info.get("height")),
+        "weight_lbs": parse_weight(info.get("weight")),
         "reach_in": parse_reach(info.get("reach")),
         "stance": clean_stance(info.get("stance")),
         "dob": parse_date(info.get("dob")),

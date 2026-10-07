@@ -7,6 +7,12 @@ from the current state, and only then folds those fights into each fighter's
 running state (aggregates + Elo). Prediction reuses the exact same object: after
 replaying all known fights, an upcoming bout is just one more pending fight.
 
+Dana White's Contender Series bouts (``data/dwcs_fights.csv``, results only) are
+merged into the same chronological stream as extra history: they update form,
+streak, layoff, finishes, Elo and the DWCS record, but not the UFC fight counts
+or the per-minute striking/grappling rates (no stats exist for them). They are
+never used as training rows.
+
 The model input for a fight is the difference ``A - B`` of every per-fighter
 feature (plus a stance-matchup flag and the fight context). Because ufcstats
 usually lists the winner first, training uses both orientations of each fight
@@ -26,8 +32,8 @@ import numpy as np
 import pandas as pd
 
 from ufc_common import (
-    DATA_DIR, FIGHTERS_CSV, FIGHTS_CSV, fight_seconds, method_group,
-    scheduled_rounds, url_id,
+    DATA_DIR, DWCS_CSV, FIGHTERS_CSV, FIGHTS_CSV, fight_seconds, method_group,
+    name_resolver, scheduled_rounds, url_id,
 )
 
 ELO_START = 1500.0
@@ -35,8 +41,8 @@ ELO_K = 40.0
 
 # Per-fighter pre-fight features (each enters the model as ``diff_<name>`` = A - B).
 FIGHTER_FEATURES = [
-    # experience
-    "n_fights", "wins", "losses", "win_rate",
+    # experience (UFC only) + Contender Series record
+    "n_fights", "wins", "losses", "win_rate", "dwcs_fights", "dwcs_wins",
     # striking
     "slpm", "sapm", "sig_acc", "sig_def", "kd_per15",
     "head_share", "body_share", "leg_share", "dist_share", "clinch_share", "ground_share",
@@ -80,9 +86,11 @@ def _div(a, b):
 class FighterState:
     """Running, pre-fight career aggregates for one fighter."""
 
-    n: int = 0
+    n: int = 0                        # UFC fights
     wins: int = 0
     losses: int = 0
+    dwcs_fights: int = 0
+    dwcs_wins: int = 0
     ko_wins: int = 0
     sub_wins: int = 0
     ko_losses: int = 0
@@ -108,11 +116,14 @@ class FighterState:
                 break
             streak += 1 if r == "W" else -1
         rd_secs = sum(s for _, s in self.recent_diffs)
+        all_fights = self.n + self.dwcs_fights
         return {
             "n_fights": self.n,
             "wins": self.wins,
             "losses": self.losses,
             "win_rate": (self.wins + 1) / (decided + 2),  # Laplace-smoothed, 0.5 for debuts
+            "dwcs_fights": self.dwcs_fights,
+            "dwcs_wins": self.dwcs_wins,
             "slpm": _div(o["sig_landed"], mins),
             "sapm": _div(p["sig_landed"], mins),
             "sig_acc": _div(o["sig_landed"], o["sig_att"]),
@@ -128,13 +139,13 @@ class FighterState:
             "opp_ctrl_pct": _div(p["ctrl_sec"], self.stat_secs),
             "ko_wins": self.ko_wins,
             "sub_wins": self.sub_wins,
-            "finish_rate": _div(self.ko_wins + self.sub_wins, self.n),
+            "finish_rate": _div(self.ko_wins + self.sub_wins, all_fights),
             "ko_losses": self.ko_losses,
             "last3_win_rate": (sum(r == "W" for r in last3) / len(last3)) if last3 else np.nan,
             "streak": streak,
             "last3_sig_diff_pm": _div(sum(d for d, _ in self.recent_diffs) * 60, rd_secs),
             "days_since_last": (date - self.last_date).days if self.last_date is not None else np.nan,
-            "opp_elo_avg": _div(self.opp_elo_sum, self.n),
+            "opp_elo_avg": _div(self.opp_elo_sum, all_fights),
         }
 
 
@@ -152,7 +163,27 @@ def prepare_fights(fights: pd.DataFrame) -> pd.DataFrame:
     core = [f"{p}_{c}" for p in ("a", "b") for c in ("sig_landed", "sig_att", "td_landed", "td_att", "ctrl_sec")]
     f["has_stats"] = f[core].notna().all(axis=1) & f["duration_sec"].gt(0)
     f["label"] = f["result_a"].map({"W": 1.0, "L": 0.0})  # draws / NC -> NaN (not trained on)
+    f["promotion"] = "UFC"
     return f.sort_values(["date", "fight_id"], kind="stable").reset_index(drop=True)
+
+
+def prepare_dwcs(dwcs: pd.DataFrame, fighters: pd.DataFrame | None) -> pd.DataFrame:
+    """Map DWCS fighter names onto ufcstats fighter keys and add the derived columns.
+
+    Fighters who later reached the UFC get their ufcstats key (so their DWCS
+    record carries over); everyone else is keyed by name.
+    """
+    d = dwcs.copy()
+    d["date"] = pd.to_datetime(d["date"])
+    resolve = name_resolver(fighters) if fighters is not None and len(fighters) else (lambda n, w=None: None)
+    for p in ("a", "b"):
+        d[f"key_{p}"] = [fighter_key(resolve(n, w), n) for n, w in zip(d[f"fighter_{p}"], d["weight_class"])]
+    d["method_group"] = d["method"].map(method_group)
+    d["duration_sec"] = np.nan
+    d["has_stats"] = False
+    d["five_round"], d["title_fight"], d["label"] = 0, 0, np.nan
+    d["promotion"] = "DWCS"
+    return d.sort_values(["date", "fight_id"], kind="stable").reset_index(drop=True)
 
 
 class FeatureBuilder:
@@ -217,16 +248,20 @@ class FeatureBuilder:
         st = self.states.setdefault(key, FighterState())
         res = getattr(r, f"result_{me}")
         res = res if res in ("W", "L", "D", "NC") else "NC"
-        st.n += 1
+        if r.promotion == "DWCS":
+            st.dwcs_fights += 1
+            st.dwcs_wins += res == "W"
+        else:
+            st.n += 1
+            st.wins += res == "W"
+            st.losses += res == "L"
         st.results.append(res)
         st.opp_elo_sum += opp_elo
         st.last_date = r.date
         if res == "W":
-            st.wins += 1
             st.ko_wins += r.method_group == "KO/TKO"
             st.sub_wins += r.method_group == "SUB"
         elif res == "L":
-            st.losses += 1
             st.ko_losses += r.method_group == "KO/TKO"
         if r.has_stats:
             st.stat_secs += r.duration_sec
@@ -247,19 +282,24 @@ class FeatureBuilder:
 
 
 def build_features(fights: pd.DataFrame, fighters: pd.DataFrame | None = None,
+                   dwcs: pd.DataFrame | None = None,
                    elo_k: float = ELO_K) -> tuple[pd.DataFrame, FeatureBuilder]:
-    """Replay all fights chronologically; return one feature row per fight and the final builder.
+    """Replay all fights chronologically; return one feature row per UFC fight and the final builder.
 
-    The returned builder holds the state *after* the last known fight and is what
-    ``predict.py`` uses to featurize upcoming bouts.
+    ``dwcs`` (optional) adds Contender Series bouts as history. The returned
+    builder holds the state *after* the last known bout and is what
+    ``predict.py`` uses to featurize upcoming fights.
     """
     f = prepare_fights(fights)
+    stream = f
+    if dwcs is not None and len(dwcs):
+        stream = pd.concat([f, prepare_dwcs(dwcs, fighters)], ignore_index=True)
     builder = FeatureBuilder(fighters, elo_k=elo_k)
     rows = []
-    for date, group in f.groupby("date", sort=True):
-        for r in group.itertuples(index=False):  # 1) features from pre-date state
-            rows.append(builder.matchup(r.key_a, r.key_b, date, r.five_round, r.title_fight))
-        builder.update(group)                     # 2) then fold the date's results in
+    for date, group in stream.groupby("date", sort=True):
+        for r in group[group["promotion"] == "UFC"].itertuples(index=False):
+            rows.append(builder.matchup(r.key_a, r.key_b, date, r.five_round, r.title_fight))  # 1) pre-date state
+        builder.update(group)                                                                  # 2) then fold in
     feats = pd.DataFrame(rows, index=f.index)
     meta = f[["fight_id", "date", "event_name", "fighter_a", "fighter_b", "key_a", "key_b",
               "weight_class", "method_group", "result_a", "label"]]
@@ -279,21 +319,23 @@ def symmetrize(df: pd.DataFrame) -> pd.DataFrame:
     return pd.concat([df.assign(orientation=0), flipped.assign(orientation=1)], ignore_index=True)
 
 
-def load_data() -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Read ``data/fights.csv`` and ``data/fighters.csv``."""
+def load_data() -> tuple[pd.DataFrame, pd.DataFrame | None, pd.DataFrame | None]:
+    """Read ``fights.csv``, ``fighters.csv`` and (if present) ``dwcs_fights.csv`` from ``data/``."""
     if not FIGHTS_CSV.exists():
         raise SystemExit(f"{FIGHTS_CSV} not found: run scrape.py or import_mirror.py first")
     fighters = pd.read_csv(FIGHTERS_CSV) if FIGHTERS_CSV.exists() else None
-    return pd.read_csv(FIGHTS_CSV), fighters
+    dwcs = pd.read_csv(DWCS_CSV) if DWCS_CSV.exists() else None
+    return pd.read_csv(FIGHTS_CSV), fighters, dwcs
 
 
 def main() -> None:
-    fights, fighters = load_data()
-    feats, builder = build_features(fights, fighters)
+    fights, fighters, dwcs = load_data()
+    feats, builder = build_features(fights, fighters, dwcs)
     out = DATA_DIR / "features.csv"
     feats.to_csv(out, index=False)
     print(f"wrote {len(feats)} rows x {len(MODEL_FEATURES)} model features to {out}")
-    print(f"{len(builder.states)} fighters tracked; labelled fights: {feats['label'].notna().sum()}")
+    print(f"{len(builder.states)} fighters tracked; labelled fights: {feats['label'].notna().sum()}; "
+          f"DWCS bouts used as history: {0 if dwcs is None else len(dwcs)}")
 
 
 if __name__ == "__main__":

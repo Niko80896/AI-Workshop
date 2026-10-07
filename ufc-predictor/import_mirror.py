@@ -35,8 +35,8 @@ import pandas as pd
 from scrape import make_session
 from ufc_common import (
     DATA_DIR, FIGHT_COLS, FIGHTER_COLS, FIGHTERS_CSV, FIGHTS_CSV,
-    clean_stance, parse_clock, parse_date, parse_height, parse_reach,
-    parse_weight_class, url_id,
+    clean_stance, name_resolver, parse_clock, parse_date, parse_height, parse_reach,
+    parse_weight, parse_weight_class, url_id,
 )
 
 log = logging.getLogger("import_mirror")
@@ -49,15 +49,6 @@ FILES = ["ufc_event_details", "ufc_fight_details", "ufc_fight_results",
 OF_COLS = {"SIG.STR.": "sig", "TOTAL STR.": "tot", "TD": "td", "HEAD": "head", "BODY": "body",
            "LEG": "leg", "DISTANCE": "dist", "CLINCH": "clinch", "GROUND": "ground"}
 INT_COLS = {"KD": "kd", "SUB.ATT": "sub_att", "REV.": "rev"}
-
-# Division weight limits (lbs) used to disambiguate fighters sharing a name.
-DIVISION_LBS = {
-    "Women's Strawweight": 115, "Women's Flyweight": 125, "Women's Bantamweight": 135,
-    "Women's Featherweight": 145, "Flyweight": 125, "Bantamweight": 135, "Featherweight": 145,
-    "Lightweight": 155, "Welterweight": 170, "Middleweight": 185, "Light Heavyweight": 205,
-    "Heavyweight": 265,
-}
-
 
 def _norm(s: pd.Series) -> pd.Series:
     return s.astype(str).str.replace(r"\s+", " ", regex=True).str.strip()
@@ -85,32 +76,12 @@ def build_fighters(tott: pd.DataFrame) -> pd.DataFrame:
         "fighter_url": tott["URL"].str.strip(),
         "name": _norm(tott["FIGHTER"]),
         "height_in": tott["HEIGHT"].map(parse_height),
+        "weight_lbs": tott["WEIGHT"].map(parse_weight),
         "reach_in": tott["REACH"].map(parse_reach),
         "stance": tott["STANCE"].map(clean_stance),
         "dob": tott["DOB"].map(parse_date),
     })
     return df.drop_duplicates("fighter_id").reindex(columns=FIGHTER_COLS)
-
-
-def _name_resolver(tott: pd.DataFrame):
-    """Return ``resolve(name, weight_class) -> url | None`` handling duplicate names."""
-    t = pd.DataFrame({"name": _norm(tott["FIGHTER"]), "url": tott["URL"].str.strip(),
-                      "lbs": pd.to_numeric(tott["WEIGHT"].astype(str).str.extract(r"(\d+)")[0],
-                                           errors="coerce")})
-    groups = {n: g for n, g in t.groupby("name")}
-
-    def resolve(name: str, weight_class: str):
-        g = groups.get(name)
-        if g is None:
-            return None
-        if len(g) == 1:
-            return g["url"].iloc[0]
-        target = DIVISION_LBS.get(weight_class)
-        if target is None or g["lbs"].isna().all():
-            return g["url"].iloc[0]
-        return g.loc[(g["lbs"] - target).abs().idxmin(), "url"]
-
-    return resolve
 
 
 def _fight_totals(stats: pd.DataFrame) -> pd.DataFrame:
@@ -148,7 +119,7 @@ def build_fights(m: dict[str, pd.DataFrame]) -> pd.DataFrame:
     res["weight_class"] = wc.str[0]
     res["title_fight"] = wc.str[1]
 
-    resolve = _name_resolver(m["ufc_fighter_tott"])
+    resolve = name_resolver(build_fighters(m["ufc_fighter_tott"]))
     res["fighter_a_url"] = [resolve(n, w) for n, w in zip(res["fighter_a"], res["weight_class"])]
     res["fighter_b_url"] = [resolve(n, w) for n, w in zip(res["fighter_b"], res["weight_class"])]
 

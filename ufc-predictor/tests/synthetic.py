@@ -64,3 +64,21 @@ def scramble_from(fights, cutoff, seed=1):
     stat = [c for c in f.columns if c[:2] in ("a_", "b_")]
     f.loc[m, stat] = rng.integers(0, 500, (n, len(stat))).astype(float)
     return f
+
+
+def make_dwcs(fighters, dates, per_date=2, seed=2):
+    """Random DWCS results between known fighters and a few DWCS-only names."""
+    rng = np.random.default_rng(seed)
+    names = list(fighters["name"]) + [f"Prospect {i}" for i in range(10)]
+    rows = []
+    for d in pd.to_datetime(pd.Series(dates)).dt.strftime("%Y-%m-%d"):
+        for j in range(per_date):
+            a, b = rng.choice(len(names), 2, replace=False)
+            res = rng.choice(["W", "D", "NC"], p=[.9, .05, .05])
+            rows.append({"fight_id": f"dwcs-{d}-{j}", "event_name": f"DWCS {d}", "date": d,
+                         "weight_class": "Lightweight",
+                         "method": rng.choice(["TKO (punches)", "Submission (armbar)", "Decision (unanimous)"]),
+                         "end_round": 1, "end_time": "1:00", "time_format": "3 Rnd (5-5-5)",
+                         "fighter_a": names[a], "fighter_b": names[b], "result_a": res,
+                         "result_b": {"W": "L"}.get(res, res), "source_url": ""})
+    return pd.DataFrame(rows)

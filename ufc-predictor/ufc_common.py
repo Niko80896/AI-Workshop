@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import math
 import re
+import unicodedata
 from datetime import datetime
 from pathlib import Path
 
@@ -31,7 +32,12 @@ FIGHT_META_COLS = [
     "fighter_a", "fighter_a_url", "fighter_b", "fighter_b_url", "result_a", "result_b",
 ]
 FIGHT_COLS = FIGHT_META_COLS + [f"{p}_{c}" for p in ("a", "b") for c in STAT_COLS]
-FIGHTER_COLS = ["fighter_id", "fighter_url", "name", "height_in", "reach_in", "stance", "dob"]
+FIGHTER_COLS = ["fighter_id", "fighter_url", "name", "height_in", "weight_lbs", "reach_in", "stance", "dob"]
+DWCS_CSV = DATA_DIR / "dwcs_fights.csv"
+DWCS_COLS = [
+    "fight_id", "event_name", "date", "weight_class", "method", "end_round", "end_time",
+    "time_format", "fighter_a", "fighter_b", "result_a", "result_b", "source_url",
+]
 
 
 def is_missing(text) -> bool:
@@ -179,3 +185,49 @@ def fight_seconds(end_round, end_time, time_format) -> float:
     if len(prev) < r - 1:
         return np.nan
     return float(sum(prev) * 60 + t)
+
+
+# Division weight limits (lbs), used to disambiguate fighters who share a name.
+DIVISION_LBS = {
+    "Women's Strawweight": 115, "Women's Flyweight": 125, "Women's Bantamweight": 135,
+    "Women's Featherweight": 145, "Flyweight": 125, "Bantamweight": 135, "Featherweight": 145,
+    "Lightweight": 155, "Welterweight": 170, "Middleweight": 185, "Light Heavyweight": 205,
+    "Heavyweight": 265,
+}
+
+
+def parse_weight(text) -> float:
+    """Parse ``155 lbs.`` into pounds (NaN when missing)."""
+    if is_missing(text):
+        return np.nan
+    m = re.search(r"(\d+)", str(text))
+    return float(m.group(1)) if m else np.nan
+
+
+def norm_name(name) -> str:
+    """Accent/case/punctuation-insensitive name key (``José Aldo`` == ``Jose Aldo``)."""
+    t = unicodedata.normalize("NFKD", str(name or "")).encode("ascii", "ignore").decode()
+    return re.sub(r"[^a-z0-9 ]", "", re.sub(r"\s+", " ", t.lower().replace("-", " "))).strip()
+
+
+def name_resolver(fighters):
+    """Build ``resolve(name, weight_class) -> fighter_url | None`` from a fighters table.
+
+    Names are matched accent/case-insensitively. When several profiles share a
+    name, the one whose listed weight is closest to the bout's division wins.
+    """
+    groups = {}
+    for r in fighters.itertuples(index=False):
+        groups.setdefault(norm_name(r.name), []).append((r.fighter_url, getattr(r, "weight_lbs", np.nan)))
+
+    def resolve(name, weight_class=None):
+        cands = groups.get(norm_name(name))
+        if not cands:
+            return None
+        if len(cands) == 1:
+            return cands[0][0]
+        target = DIVISION_LBS.get(str(weight_class or "").strip())
+        scored = [(abs(w - target), u) for u, w in cands if target is not None and not math.isnan(w)]
+        return min(scored)[1] if scored else cands[0][0]
+
+    return resolve
