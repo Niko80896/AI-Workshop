@@ -6,7 +6,7 @@ both fighters, winner, method, ending round and time. ``features.py`` uses these
 bouts as extra history (Elo, form, streak, layoff, finishes, DWCS record) but
 never in per-minute striking/grappling rates.
 
-Each season page (``Dana White's Contender Series 1`` ... ``N``) is split into
+Each season page (``Dana White's Contender Series season 1`` ... ``N``) is split into
 weekly sections, each with a standard Wikipedia MMA results table
 (``Weight class | winner | def. | loser | Method | Round | Time | Notes``).
 The bout date is taken from the nearest date text above each table.
@@ -37,7 +37,8 @@ from ufc_common import DATA_DIR, DWCS_COLS, DWCS_CSV, parse_date
 log = logging.getLogger("scrape_dwcs")
 
 WIKI = "https://en.wikipedia.org/wiki/"
-PAGE_TITLE = "Dana White's Contender Series {n}"
+# Wikipedia has used both title styles; the current one ("season 10") is tried first.
+PAGE_TITLES = ("Dana White's Contender Series season {n}", "Dana White's Contender Series {n}")
 DATE_RE = re.compile(
     r"(January|February|March|April|May|June|July|August|September|October|November|December)"
     r"\s+(\d{1,2}),?\s+(\d{4})")
@@ -46,8 +47,8 @@ DATE_RE_DMY = re.compile(
     r",?\s+(\d{4})")
 
 
-def season_url(n: int) -> str:
-    return WIKI + quote(PAGE_TITLE.format(n=n).replace(" ", "_"))
+def season_url(n: int, style: int = 0) -> str:
+    return WIKI + quote(PAGE_TITLES[style].format(n=n).replace(" ", "_"))
 
 
 def _clean(text: str) -> str:
@@ -151,14 +152,18 @@ def scrape_dwcs(fetcher: Fetcher | None = None, seasons=range(1, 16),
     else:
         fetcher = fetcher or Fetcher(delay=1.0)
         for n in seasons:
-            url = season_url(n)
-            try:
-                html = fetcher.get(url)
-            except requests.HTTPError as exc:
-                if exc.response is not None and exc.response.status_code == 404:
-                    log.info("season %d: no page, skipping", n)
-                    continue
-                raise
+            html = url = None
+            for style in range(len(PAGE_TITLES)):
+                url = season_url(n, style)
+                try:
+                    html = fetcher.get(url)
+                    break
+                except requests.HTTPError as exc:
+                    if exc.response is None or exc.response.status_code != 404:
+                        raise
+            if html is None:
+                log.info("season %d: no page, skipping", n)
+                continue
             season_rows = parse_season_page(html, n, url)
             log.info("season %d: %d bouts", n, len(season_rows))
             rows += season_rows

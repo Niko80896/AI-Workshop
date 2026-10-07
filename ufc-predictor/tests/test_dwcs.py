@@ -4,7 +4,8 @@ from scrape_dwcs import parse_season_page, season_url
 
 
 def test_season_url():
-    assert season_url(8) == "https://en.wikipedia.org/wiki/Dana_White%27s_Contender_Series_8"
+    assert season_url(10) == "https://en.wikipedia.org/wiki/Dana_White%27s_Contender_Series_season_10"
+    assert season_url(8, 1) == "https://en.wikipedia.org/wiki/Dana_White%27s_Contender_Series_8"
 
 
 def test_parse_season_page():
@@ -21,3 +22,19 @@ def test_parse_season_page():
     assert (rows[2]["result_a"], rows[2]["result_b"]) == ("D", "D")
     assert (rows[3]["result_a"], rows[3]["result_b"]) == ("NC", "NC")
     assert rows[4]["method"].startswith("Submission") and rows[4]["result_b"] == "L"
+
+
+def test_scrape_falls_back_to_old_title(monkeypatch):
+    import requests
+    from scrape_dwcs import scrape_dwcs
+
+    class F:
+        def get(self, url):
+            if "season_" in url or not url.endswith("_8"):
+                resp = requests.Response()
+                resp.status_code = 404
+                raise requests.HTTPError(response=resp)
+            return (FIXTURES / "dwcs_season.html").read_text()
+
+    df = scrape_dwcs(F(), seasons=[8, 9])
+    assert len(df) == 5 and df["source_url"].str.endswith("_8").all()
