@@ -198,6 +198,13 @@ def parse_feed(feed: dict) -> dict:
         f = box[side].get("teamStats", {}).get("fielding", {})
         teams[side_team[side]]["errors"] = f.get("errors", 0)
 
+    def line(side):
+        s = ""
+        for inn in ld["linescore"].get("innings", []):
+            r = inn.get(side, {}).get("runs")
+            s += "x" if r is None else (str(r) if r < 10 else f"({r})")
+        return s
+
     ls = ld["linescore"]["teams"]
     hs, as_ = ls["home"].get("runs", 0), ls["away"].get("runs", 0)
     names = {pid(p["id"]): p.get("fullName", "") for p in gd["players"].values()}
@@ -209,6 +216,7 @@ def parse_feed(feed: dict) -> dict:
         "home_sp": starters.get("home"), "home_sp_name": names.get(starters.get("home"), ""),
         "game_id": game_id, "round": ROUND.get(gd["game"]["type"], "REG"),
         "season": int(date[:4]), "home_win": int(hs > as_), "is_postseason": int(gd["game"]["type"] != "R"),
+        "vis_line": line("away"), "home_line": line("home"),
     }
     base = {"game_id": game_id, "date": date}
     return {
@@ -238,7 +246,7 @@ def final_games(season: int, end: str | None = None) -> list[dict]:
 
 
 def import_game(pk: int, season: int) -> dict | None:
-    path = C.CACHE_DIR / "statsapi" / str(season) / f"{pk}.json.gz"
+    path = C.CACHE_DIR / "statsapi" / "v2" / str(season) / f"{pk}.json.gz"
     if path.exists():
         return json.loads(gzip.decompress(path.read_bytes()))
     feed = get_json(f"/api/v1.1/game/{pk}/feed/live")
@@ -255,13 +263,15 @@ def import_game(pk: int, season: int) -> dict | None:
 def import_season(season: int, workers: int = 8) -> dict[str, pd.DataFrame]:
     """All final games of ``season`` as DataFrames with the Retrosheet-derived schemas."""
     mlbam_to_retro()
-    games = final_games(season)
+    games = list({g["gamePk"]: g for g in final_games(season)}.values())  # schedule can list a game twice
     log.info("%d final games in %d", len(games), season)
     out = {"game": [], "pitcher": [], "batter": [], "team": [], "players": []}
+    seen = set()
     with cf.ThreadPoolExecutor(workers) as ex:
         for rows in ex.map(lambda g: import_game(g["gamePk"], season), games):
-            if rows is None:
+            if rows is None or rows["game"]["game_id"] in seen:
                 continue
+            seen.add(rows["game"]["game_id"])
             out["game"].append(rows["game"])
             for k in ("pitcher", "batter", "team", "players"):
                 out[k] += rows[k]

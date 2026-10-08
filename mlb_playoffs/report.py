@@ -11,6 +11,7 @@ Common options:
     --injuries PATH        injuries CSV (default data/manual/injuries.csv)
 
 game options:   --home-sp NAME  --away-sp NAME   (override probable starters)
+                --total 8.5  --f5-total 4.5      (price specific total lines)
 series options: --round WC|DS|LCS|WS
 
 Charts are written to charts/.
@@ -218,7 +219,57 @@ def cmd_game(args):
                   f"{display(away)} @ {display(home)}: {display(home)} {pct(p)}  ({pname(asp)} vs {pname(hsp)})")
     staff = C.CHART_DIR / f"staff_{display(home)}_{display(away)}.png"
     chart_staff(sim, home, away, staff)
+    print_runs(sim, row, home, away, args)
     print(f"\nCharts: {path}\n        {staff}")
+
+
+def load_runs_model(sim):
+    """Runs model matching the win model's training cutoff (falls back to production)."""
+    import runs
+    name = sim.bracket.get("model", "production")
+    try:
+        return runs.load(name)
+    except FileNotFoundError:
+        return runs.load("production")
+
+
+def print_runs(sim, row, home, away, args):
+    """First inning, F3, F5 and full-game run projections (runs.py)."""
+    import runs
+    model = load_runs_model(sim)
+    h_row, a_row = runs.matchup_rows(row, is_post=int(row.get("is_postseason", 1)))
+    lines = [("F5", args.f5_total)] if args.f5_total is not None else []
+    if args.total is not None:
+        lines.append(("Full", args.total))
+    o = runs.game_outputs(model, h_row, a_row, n=args.sims, seed=args.seed, lines=lines)
+    H, A = display(home), display(away)
+    print(f"\nRuns, first five and totals ({args.sims:,} simulations):")
+    e = o["exp_runs"]
+    print(f"  Expected runs        {'1st':>6s} {'F3':>6s} {'F5':>6s} {'Full':>6s}")
+    for side, t in (("away", A), ("home", H)):
+        print(f"    {t:4s}               {e[side]['1st']:6.2f} {e[side]['F3']:6.2f} {e[side]['F5']:6.2f} {e[side]['Full']:6.2f}")
+    print(f"  F5 average runs (incl. 0):  {H} {o['f5_avg_incl0'][0]:.2f}   {A} {o['f5_avg_incl0'][1]:.2f}   "
+          f"DIF {o['f5_avg_incl0'][0] - o['f5_avg_incl0'][1]:+.2f}")
+    print(f"  F5 average runs (excl. 0):  {H} {o['f5_avg_excl0'][0]:.2f}   {A} {o['f5_avg_excl0'][1]:.2f}   "
+          f"DIF {o['f5_avg_excl0'][0] - o['f5_avg_excl0'][1]:+.2f}")
+    print(f"  NRFI {pct(o['nrfi'])}   YRFI {pct(1 - o['nrfi'])}   (MLB average ~50%)")
+    for k in ("f3", "f5"):
+        d = o[k]
+        nt = d["home"] / (d["home"] + d["away"])
+        fav, pfav = (H, nt) if nt >= 0.5 else (A, 1 - nt)
+        print(f"  {k.upper()} 3-way: {H} {pct(d['home'])}  tie {pct(d['tie'])}  {A} {pct(d['away'])}   "
+              f"-> {fav} {pct(pfav)} excluding ties")
+    m = o["f5_margin_mode"]
+    print(f"  Most common F5 margin: {abs(m)} run(s) in favor of {H if m > 0 else A}")
+    print(f"  Full game (run model): {H} {pct(o['full_home_win'])}   (win model: {H} {pct(sim.model.predict_proba(pd.DataFrame([row]))[0])})")
+    print(f"  Projected totals (median / mean):  F3 {o['median_total']['F3']:.1f}/{o['mean_total']['F3']:.2f}   "
+          f"F5 {o['median_total']['F5']:.1f}/{o['mean_total']['F5']:.2f}   Full {o['median_total']['Full']:.1f}/{o['mean_total']['Full']:.2f}")
+    print("  Over / under:")
+    for (k, line), (po, pu) in sorted(o["totals"].items()):
+        print(f"    {k:4s} {line:4.1f}   over {pct(po):>6s}   under {pct(pu):>6s}")
+    for side, t in (("away", A), ("home", H)):
+        tt = o["team_totals_f5"][side]
+        print(f"  {t} F5 team total: over 1.5 {pct(tt[1.5])}, over 2.5 {pct(tt[2.5])}")
 
 
 def cmd_series(args):
@@ -288,6 +339,8 @@ def main():
     g = sub.add_parser("game", help="single-game prediction (first team is home)")
     g.add_argument("team_a"); g.add_argument("team_b")
     g.add_argument("--home-sp"); g.add_argument("--away-sp")
+    g.add_argument("--total", type=float, help="full-game total line to price, e.g. 8.5")
+    g.add_argument("--f5-total", type=float, help="first-five total line to price, e.g. 4.5")
     s = sub.add_parser("series", help="series odds")
     s.add_argument("team_a"); s.add_argument("team_b")
     s.add_argument("--round", default="WS", choices=["WC", "DS", "LCS", "WS"])

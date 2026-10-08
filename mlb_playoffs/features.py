@@ -95,10 +95,10 @@ def shrink(num, den, prior_rate, k):
 
 
 # Pitching vector layout.
-PV = ["BF", "outs", "K", "BB", "HBP", "HR", "F", "P", "er", "IBB"]
+PV = ["BF", "outs", "K", "BB", "HBP", "HR", "F", "P", "er", "IBB", "H"]
 PI = {k: i for i, k in enumerate(PV)}
 # Batting vector layout (per batter per pitcher hand).
-BV = ["woba_num", "woba_den", "PA", "K", "AB", "iso_num"]
+BV = ["woba_num", "woba_den", "PA", "K", "AB", "iso_num", "obp_num", "obp_den"]
 BI = {k: i for i, k in enumerate(BV)}
 
 
@@ -108,7 +108,10 @@ def _bat_vec(r) -> np.ndarray:
             + WOBA_W["2B"] * r.get("2B", 0) + WOBA_W["3B"] * r.get("3B", 0) + WOBA_W["HR"] * r.get("HR", 0))
     den = r.get("AB", 0) + ubb + r.get("SF", 0) + r.get("HBP", 0)
     iso = r.get("2B", 0) + 2 * r.get("3B", 0) + 3 * r.get("HR", 0)
-    return np.array([woba, den, r.get("PA", 0), r.get("K", 0), r.get("AB", 0), iso], dtype=float)
+    obp_num = r.get("H", 0) + ubb + r.get("IBB", 0) + r.get("HBP", 0)
+    obp_den = r.get("AB", 0) + ubb + r.get("IBB", 0) + r.get("HBP", 0) + r.get("SF", 0)
+    return np.array([woba, den, r.get("PA", 0), r.get("K", 0), r.get("AB", 0), iso, obp_num, obp_den],
+                    dtype=float)
 
 
 def _pit_vec(r) -> np.ndarray:
@@ -169,7 +172,7 @@ class LeagueState:
         bf = max(v[PI["BF"]], 1)
         if bf < 1000:   # first days of the data: use typical MLB rates
             return {"K": .225, "BB": .08, "HBP": .011, "HR": .031, "F": .27, "P": .07,
-                    "outs": .69, "er": .115, "IBB": .005}
+                    "outs": .69, "er": .115, "IBB": .005, "H": .215}
         r = {k: v[PI[k]] / bf for k in PV if k != "BF"}
         return r
 
@@ -188,7 +191,7 @@ class LeagueState:
 
     def lg_rate(self, day, stat, denom):
         v = self.league_bat.get("same", day) + self.league_bat.get("opp", day)
-        return v[BI[stat]] / v[BI[denom]] if v[BI[denom]] > 500 else {"K": .225, "iso_num": .16}[stat]
+        return v[BI[stat]] / v[BI[denom]] if v[BI[denom]] > 500 else {"K": .225, "iso_num": .16, "obp_num": .315}[stat]
 
     # ------------------------------------------------------------------ #
     # Pitchers
@@ -212,7 +215,10 @@ class LeagueState:
         xfip = (13 * FB * hr_per_fb + 3 * (BB + HBP) - 2 * K) / ip_per_bf + c
         st = self.starts.get(pid, day)
         depth = shrink(st[1], st[0], 13.5, 4) / 3  # innings per start, prior 4.5
-        return {"fip": fip, "xfip": xfip, "kbb": K - BB, "k": K, "era": 27 * er / outs,
+        H = shrink(v[PI["H"]], bf, lg["H"], 400)
+        IBB = shrink(v[PI["IBB"]], bf, lg["IBB"], 400)
+        whip = (BB + IBB + H) / ip_per_bf
+        return {"fip": fip, "xfip": xfip, "kbb": K - BB, "k": K, "era": 27 * er / outs, "whip": whip,
                 "depth": depth, "bf": bf, "throws": self.throws.get(pid, "R")}
 
     def days_rest(self, pid, day) -> int:
@@ -303,6 +309,8 @@ class LeagueState:
             overall = shrink(both[BI["woba_num"]], both[BI["woba_den"]], lg_all, 220)
             prior = overall + (lg_split - lg_all)
             return shrink(vs[BI["woba_num"]], vs[BI["woba_den"]], prior, 400)
+        if stat == "obp":
+            return shrink(both[BI["obp_num"]], both[BI["obp_den"]], self.lg_rate(day, "obp_num", "obp_den"), 200)
         if stat == "k":
             return shrink(both[BI["K"]], both[BI["PA"]], self.lg_rate(day, "K", "PA"), 60)
         return shrink(both[BI["iso_num"]], both[BI["AB"]], self.lg_rate(day, "iso_num", "AB"), 160)
@@ -318,15 +326,16 @@ class LeagueState:
         tot = sum(w.values()) + lost
         lg = self.lg_woba(day)
         if tot <= 0:
-            return {"woba": lg, "iso": .16, "k": .225, "platoon_adv": .5}
+            return {"woba": lg, "iso": .16, "k": .225, "obp": .315, "platoon_adv": .5}
         woba = sum(wt * self.batter_rate(p, opp_hand, day) for p, wt in w.items())
         iso = sum(wt * self.batter_rate(p, opp_hand, day, "iso") for p, wt in w.items())
         k = sum(wt * self.batter_rate(p, opp_hand, day, "k") for p, wt in w.items())
+        obp = sum(wt * self.batter_rate(p, opp_hand, day, "obp") for p, wt in w.items())
         adv = sum(wt for p, wt in w.items()
                   if self.bats.get(p, "R") == "B" or self.bats.get(p, "R") != opp_hand)
         repl_woba = lg - 0.03
         return {"woba": (woba + lost * repl_woba) / tot, "iso": (iso + lost * 0.13) / tot,
-                "k": (k + lost * 0.25) / tot, "platoon_adv": adv / tot}
+                "k": (k + lost * 0.25) / tot, "obp": (obp + lost * 0.29) / tot, "platoon_adv": adv / tot}
 
     # ------------------------------------------------------------------ #
     # Team-level
@@ -345,6 +354,7 @@ class LeagueState:
         der = shrink(m[0] - m[1], m[0], lg_der, 400)
         baserun = shrink(0.2 * m[2] - 0.41 * m[3], m[4], 0.0, 20)
         return {"elo": self.elo[team], "pyth": pyth, "form": form, "der": der, "baserun": baserun,
+                "lg_rpg": lg_rpg,
                 "rs_pg": rs, "ra_pg": ra}
 
     # ------------------------------------------------------------------ #
@@ -393,6 +403,16 @@ class LeagueState:
             "is_postseason": is_post,
             # Not model features: used by baselines and reports.
             "home_elo": th["elo"], "away_elo": ta["elo"], "home_pyth": th["pyth"], "away_pyth": ta["pyth"],
+            # Raw per-side values for the runs / totals model (runs.py).
+            "lg_rpg": th["lg_rpg"],
+            **{f"{s}_{k}": v for s, d in (("home", {
+                "lineup_woba": lh["woba"], "lineup_iso": lh["iso"], "lineup_k": lh["k"], "lineup_obp": lh["obp"],
+                "sp_whip": sh["whip"], "sp_fip": sh["fip"], "sp_xfip": sh["xfip"], "sp_kbb": sh["kbb"], "sp_depth": sh["depth"],
+                "pen_top": bh["top_fip"], "pen_all": bh["all_fip"], "der": th["der"]}), ("away", {
+                "lineup_woba": la["woba"], "lineup_iso": la["iso"], "lineup_k": la["k"], "lineup_obp": la["obp"],
+                "sp_whip": sa["whip"], "sp_fip": sa["fip"], "sp_xfip": sa["xfip"], "sp_kbb": sa["kbb"], "sp_depth": sa["depth"],
+                "pen_top": ba["top_fip"], "pen_all": ba["all_fip"], "der": ta["der"]}))
+               for k, v in d.items()},
         }
         detail = {"home_team": th, "away_team": ta, "home_sp": sh, "away_sp": sa,
                   "home_lineup": lh, "away_lineup": la, "home_pen": bh, "away_pen": ba}

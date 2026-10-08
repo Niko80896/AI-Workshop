@@ -117,6 +117,7 @@ def download_all(seasons=C.SEASONS, workers: int = 8) -> None:
 # Zero-based column positions in the Retrosheet game-log format.
 GL_COLS = {0: "date", 1: "game_num", 3: "visteam", 4: "vis_league", 6: "hometeam",
            7: "home_league", 9: "vis_score", 10: "home_score", 11: "outs", 16: "park",
+           19: "vis_line", 20: "home_line",
            101: "vis_sp", 102: "vis_sp_name", 103: "home_sp", 104: "home_sp_name"}
 
 
@@ -128,6 +129,31 @@ def read_gamelog(text: str) -> pd.DataFrame:
         df[c] = pd.to_numeric(df[c], errors="coerce")
     df["game_id"] = df["hometeam"] + df["date"].dt.strftime("%Y%m%d") + df["game_num"]
     return df
+
+
+def parse_line(line: str) -> list:
+    """Retrosheet line score ('00(10)0x') -> runs per inning; 'x' (not batted) -> None."""
+    out, i = [], 0
+    while i < len(line):
+        ch = line[i]
+        if ch == "(":
+            j = line.index(")", i)
+            out.append(int(line[i + 1:j]))
+            i = j + 1
+            continue
+        out.append(None if ch.lower() == "x" else int(ch))
+        i += 1
+    return out
+
+
+def add_inning_splits(games: pd.DataFrame) -> pd.DataFrame:
+    """Runs in the 1st inning, first 3 and first 5 innings per side (NaN if not played)."""
+    for side in ("vis", "home"):
+        lines = games[f"{side}_line"].fillna("").astype(str).map(parse_line)
+        for name, n in (("r1", 1), ("f3", 3), ("f5", 5)):
+            games[f"{side}_{name}"] = lines.map(
+                lambda ln, n=n: sum(ln[:n]) if len(ln) >= n and None not in ln[:n] else float("nan"))
+    return games
 
 
 def postseason_round(row) -> str:
@@ -310,6 +336,7 @@ def build_all(seasons=C.SEASONS, external: bool = False, live: bool = False) -> 
         new = cur["players"][~cur["players"]["player_id"].isin(set(frames["players"]["player_id"]))]
         frames["players"] = pd.concat([frames["players"], new], ignore_index=True)
         log.info("added %d %d games from the MLB Stats API", len(cur["game"]), C.LIVE_SEASON)
+    games = add_inning_splits(games)
     games.to_csv(C.DATA_DIR / "games.csv", index=False)
     pitch = frames["pitcher"]
     pitch["ip"] = pitch["outs"] / 3

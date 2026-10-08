@@ -135,6 +135,39 @@ Two models are saved. `through_2025_regular` is frozen before the 2025
 postseason, so the 2025 demo is an honest out-of-sample prediction.
 `production` uses all games.
 
+## Step 3b: Runs, first five and totals (`runs.py`)
+
+Each team's runs are modeled in four segments (1st inning, innings 2-3, 4-5,
+6-end): a Poisson regression on that team's lineup (wOBA, OBP, ISO, K%)
+against the opposing starter (FIP, xFIP, WHIP, K-BB%, innings per start),
+bullpen and defense, with a negative-binomial spread fit to real scoring.
+Simulating the segments gives NRFI/YRFI, F3 and F5 three-way odds, the
+"excluding ties" F5 win %, average runs with and without zeros, and
+over/under probabilities for any F3/F5/full-game line.
+
+Out-of-sample backtest, 7,401 games from 2024-2026 (trained on 2016-23):
+
+- NRFI predicted 50.2%, actual 50.8%; every quintile calibrated within 1-3 pts
+- F5 total: mean predicted 4.83 vs actual 4.97; full game 8.55 vs 8.87
+  (2024-26 scored slightly more than the training years; the production
+  model is refit on all seasons)
+- F5 leans, picking the side whose F5 win % excluding ties is at least X:
+
+| X | plays | W-L-P | win % (no pushes) | full-game win % |
+|---|---|---|---|---|
+| 55% | 4,057 | 2045-1388-624 | 59.6% | 59.0% |
+| 60% | 1,683 | 925-519-239 | 64.1% | 63.1% |
+| 65% | 472 | 292-126-54 | 69.9% | 71.4% |
+
+Win rate alone does not mean profit: a 65% F5 favorite is usually priced
+around -185, which needs 65% to break even. Without betting odds in the data
+there is no ROI number here.
+
+```bash
+python runs.py
+python report.py --season 2026 --asof 2026-10-08 game "White Sox" Guardians --total 7.5 --f5-total 4
+```
+
 ## Step 4: Simulation (`simulate.py`)
 
 Uses the current format: Wild Card best-of-3 (higher seed hosts all games),
@@ -189,6 +222,7 @@ data.py        download/cache/clean -> data/*.csv (+ optional pybaseball/statsap
 statsapi_import.py  current season from the MLB Stats API, same schema as Retrosheet
 features.py    LeagueState, leakage-free features
 model.py       baselines, LR, GBM, evaluation, backtest
+runs.py        NRFI / F3 / F5 / totals run model and backtest
 simulate.py    Monte Carlo series/bracket simulation
 report.py      CLI + charts
 plotstyle.py   chart palette/style
