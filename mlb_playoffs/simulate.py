@@ -192,8 +192,13 @@ class PlayoffSimulator:
         out = {}
         for rnd in ROUNDS:
             for lg in ("AL", "NL", "MLB"):
-                if cal.get(rnd, {}).get(lg):
-                    out[(rnd, lg)] = [pd.Timestamp(d).toordinal() for d in cal[rnd][lg]]
+                given = cal.get(rnd, {}).get(lg)
+                if given and len(given) >= BEST_OF[rnd]:
+                    out[(rnd, lg)] = [pd.Timestamp(d).toordinal() for d in given]
+                elif given:   # partial schedule (e.g. "if necessary" games not listed yet)
+                    start = pd.Timestamp(given[0]).toordinal()
+                    base = DEFAULT_OFFSETS[rnd][0]
+                    out[(rnd, lg)] = [start + o - base for o in DEFAULT_OFFSETS[rnd]]
                 else:
                     out[(rnd, lg)] = [wc_start.toordinal() + o for o in DEFAULT_OFFSETS[rnd]]
         return out
@@ -222,8 +227,14 @@ class PlayoffSimulator:
         return self.rotations[team]
 
     def _probables(self) -> dict:
+        """Announced probables (statsapi, current season) overlaid with manual entries."""
+        auto = []
+        if self.season == C.LIVE_SEASON:
+            import statsapi_import as SA
+            if SA.reachable():
+                auto = SA.postseason_probables(self.season)
         out = {}
-        for p in self.bracket.get("probables", []):
+        for p in auto + self.bracket.get("probables", []):
             t = resolve_team(p["team"])
             out[(p["round"], int(p["game"]), t)] = resolve_player(p["pitcher"], t, self.state)
         return out

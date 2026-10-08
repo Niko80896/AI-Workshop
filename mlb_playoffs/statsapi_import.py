@@ -308,6 +308,24 @@ def postseason_calendar(season: int) -> dict:
     return {r: {lg: [v[k] for k in sorted(v)] for lg, v in lgs.items()} for r, lgs in cal.items()}
 
 
+def postseason_probables(season: int) -> list[dict]:
+    """Announced probable pitchers for scheduled postseason games."""
+    sched = get_json(f"/api/v1/schedule?sportId=1&startDate={season}-09-25&endDate={season}-11-15"
+                     f"&gameType=F,D,L,W&hydrate=probablePitcher")
+    out = []
+    for d in sched.get("dates", []):
+        for g in d["games"]:
+            if g["status"].get("abstractGameState") == "Final":
+                continue
+            for side in ("home", "away"):
+                t = g["teams"][side]
+                pp = t.get("probablePitcher")
+                if pp and t["team"]["id"] in TEAM_IDS:
+                    out.append({"round": ROUND[g["gameType"]], "game": g.get("seriesGameNumber", 1),
+                                "team": TEAM_IDS[t["team"]["id"]], "pitcher": pid(pp["id"])})
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--season", type=int, default=C.LAST_SEASON + 1)
