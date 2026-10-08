@@ -12,6 +12,7 @@ CHART_DIR = ROOT / "charts"
 FIRST_SEASON = 2015
 LAST_SEASON = 2025          # last season with complete Retrosheet data
 SEASONS = list(range(FIRST_SEASON, LAST_SEASON + 1))
+LIVE_SEASON = LAST_SEASON + 1   # current season, imported from the MLB Stats API
 
 RETRO_BASE = "https://raw.githubusercontent.com/chadwickbureau/retrosheet/master"
 

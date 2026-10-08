@@ -18,6 +18,7 @@ skipped cleanly otherwise. Every download is cached under data/cache/.
 
 Usage:
     python data.py               # build everything (re-runs use the cache)
+    python data.py --live        # also import the current season from the MLB Stats API
     python data.py --external    # also try pybaseball / statsapi sources
 """
 from __future__ import annotations
@@ -285,16 +286,30 @@ def fetch_live_bracket(season: int) -> dict | None:
 # Main
 # --------------------------------------------------------------------------- #
 
-def build_all(seasons=C.SEASONS, external: bool = False) -> None:
-    """Download (cached) and write all clean CSVs to data/."""
+def build_all(seasons=C.SEASONS, external: bool = False, live: bool = False) -> None:
+    """Download (cached) and write all clean CSVs to data/.
+
+    With ``live=True`` the current season (C.LIVE_SEASON) is imported from the
+    MLB Stats API and appended with the same columns.
+    """
     download_all(seasons)
     games = build_games(seasons)
     frames = parse_seasons(seasons)
     pbp_games = frames["game"].copy()
-    pbp_games["home_sp_pbp"] = pbp_games["home_sp"]
-    pbp_games["vis_sp_pbp"] = pbp_games["vis_sp"]
     # Keep only games present in both sources.
     games = games[games["game_id"].isin(set(pbp_games["game_id"]))].reset_index(drop=True)
+    if live:
+        import statsapi_import as SA
+        if not SA.reachable():
+            raise SystemExit("--live needs statsapi.mlb.com, which this environment's network policy blocks.")
+        cur = SA.import_season(C.LIVE_SEASON)
+        games = pd.concat([games, cur["game"]], ignore_index=True).sort_values(["date", "game_id"])
+        games = games.reset_index(drop=True)
+        for k in ("pitcher", "batter", "team"):
+            frames[k] = pd.concat([frames[k], cur[k]], ignore_index=True).fillna(0)
+        new = cur["players"][~cur["players"]["player_id"].isin(set(frames["players"]["player_id"]))]
+        frames["players"] = pd.concat([frames["players"], new], ignore_index=True)
+        log.info("added %d %d games from the MLB Stats API", len(cur["game"]), C.LIVE_SEASON)
     games.to_csv(C.DATA_DIR / "games.csv", index=False)
     pitch = frames["pitcher"]
     pitch["ip"] = pitch["outs"] / 3
@@ -324,6 +339,8 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--external", action="store_true", help="also try pybaseball/statsapi sources")
+    ap.add_argument("--live", action="store_true",
+                    help=f"also import the {C.LIVE_SEASON} season from the MLB Stats API")
     ap.add_argument("--seasons", nargs="*", type=int, default=C.SEASONS)
     args = ap.parse_args()
-    build_all(args.seasons, external=args.external)
+    build_all(args.seasons, external=args.external, live=args.live)

@@ -37,6 +37,25 @@ hosts are reachable.
 | Catcher framing | not available without pitch locations |
 | BsR | stolen-base runs (0.2 x SB - 0.41 x CS) |
 
+### Current season (2026) from the MLB Stats API
+
+Retrosheet only publishes a season after it ends, so `statsapi_import.py`
+converts every final 2026 game's statsapi live feed into the same CSV columns
+the Retrosheet parser writes. Players are mapped to Retrosheet ids through the
+Chadwick Bureau register (MLB debutants without one become `mlb<id>`), so 2026
+stats join each player's history. This needs **statsapi.mlb.com** to be
+allowed in the environment's network settings.
+
+```bash
+python data.py --live          # 2015-2025 Retrosheet + 2026 from statsapi
+python features.py && python model.py
+python report.py --season 2026 --asof 2026-10-09 game Brewers Padres
+python report.py --season 2026 --asof 2026-10-09 bracket
+```
+
+`bracket_2026.json` fills its seeds and postseason calendar from statsapi
+standings and schedule the first time it is loaded with blank seeds.
+
 ## Step 1: Data (`data.py`, `retrosheet.py`)
 
 Every download is cached in `data/cache/` and never fetched again. Outputs:
@@ -152,10 +171,9 @@ stat table. Charts are saved to `charts/`:
 
 ## Known limitations
 
-- **No 2026 data offline.** Retrosheet's newest season is 2025. To predict
-  2026, data for that season has to be added (for example by allowing
-  statsapi.mlb.com and the FanGraphs/Savant hosts); until then
-  `bracket_2026.json` runs on ratings through 2025.
+- **2026 needs statsapi.mlb.com.** Retrosheet's newest season is 2025; the
+  2026 season is imported with `python data.py --live`, which only works when
+  the environment allows statsapi.mlb.com.
 - Bullpen fatigue is known for the first simulated day only; later simulated
   games assume a rested bullpen.
 - Auto-rotations need at least 4.4 innings per start, so pitchers on a
@@ -168,6 +186,7 @@ stat table. Charts are saved to `charts/`:
 config.py      paths and constants
 retrosheet.py  event-file parser
 data.py        download/cache/clean -> data/*.csv (+ optional pybaseball/statsapi)
+statsapi_import.py  current season from the MLB Stats API, same schema as Retrosheet
 features.py    LeagueState, leakage-free features
 model.py       baselines, LR, GBM, evaluation, backtest
 simulate.py    Monte Carlo series/bracket simulation

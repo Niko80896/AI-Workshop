@@ -100,6 +100,15 @@ def display(team: str) -> str:
 def load_bracket(season: int) -> dict:
     path = C.MANUAL_DIR / f"bracket_{season}.json"
     b = json.loads(path.read_text())
+    if not all(all(ts) for ts in b["seeds"].values()) or not b.get("calendar"):
+        # Fill blanks from the MLB Stats API when it is reachable.
+        import statsapi_import as SA
+        if SA.reachable():
+            if not all(all(ts) for ts in b["seeds"].values()):
+                b["seeds"] = SA.fetch_seeds(season)
+            if not b.get("calendar"):
+                b["calendar"] = SA.postseason_calendar(season)
+            path.write_text(json.dumps(b, indent=2))
     b["seeds"] = {lg: [resolve_team(t) for t in ts] for lg, ts in b["seeds"].items() if all(ts)}
     if not b["seeds"]:
         raise SystemExit(f"Fill in the seeds in {path} first.")
