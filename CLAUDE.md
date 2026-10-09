@@ -1,7 +1,7 @@
 # October
 
 ## Stack
-- Next.js (App Router), TypeScript, plain CSS (no CSS framework).
+- Next.js 16 (App Router), TypeScript, plain CSS (no CSS framework).
 - Supabase for sign-in and the database.
 - Deployed on Vercel (project: ai-workshop). Live site: https://ai-workshop-blush-nine.vercel.app
 - GitHub repo: Niko80896/AI-Workshop. Default branch: main.
@@ -11,7 +11,7 @@
 
 ## Commands
 - Look at the scripts section of package.json first and use only scripts that exist there.
-- Usual Next.js scripts: npm run dev (local dev server), npm run build (production build check), npm run lint (code style check).
+- npm run dev (local dev server), npm run build (production build check). There is no lint script.
 - Run the build before pushing, and report any failure plainly.
 
 ## Never
@@ -31,6 +31,8 @@
 - Explain what you did in plain language, not only in code. Niko directs and reviews all work in this repo.
 - Flag anything Niko would be embarrassed not to understand if asked about it at a live session.
 - Keep code small and plain. Pick the simplest approach that meets the done-criteria.
+- Supabase helper code lives in app/_lib/supabase/ (server.ts for server code, proxy.ts for the session refresh). Reuse these instead of creating new clients elsewhere.
+- The per-request session refresh is proxy.ts at the project root. In Next.js 16 this file replaces middleware.ts. Do not add a middleware.ts.
 - Every Supabase table gets row-level security (a database rule that limits who can read and change which rows). The predictions table is readable by signed-in users only, and the website never writes to it.
 - Like and dislike counts are visible to all signed-in users, but each person can only add, switch, or remove their own reaction.
 - Games are listed by date, soonest first. The data has no start time, so games on the same date are ordered by away team name, A to Z.
