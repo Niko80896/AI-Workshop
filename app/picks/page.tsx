@@ -43,7 +43,7 @@ export default async function PicksPage() {
       <h1 className="picks-title">Picks</h1>
 
       {error && <p className="form-error">Could not load predictions: {error.message}</p>}
-      {!error && games.length === 0 && <p>No games yet.</p>}
+      {!error && games.length === 0 && <p>No predictions yet.</p>}
 
       <ul className="games">
         {games.map((game) => (
