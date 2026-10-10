@@ -6,7 +6,8 @@ CSVs; this script converts it into exactly the same schema ``scrape.py`` writes.
 
 Differences from the direct scraper that this handles:
 
-* Stats are per round -> summed into per-fight totals (all-missing stays NaN).
+* Stats are per round -> summed into per-fight totals (all-missing stays NaN);
+  round-1 vs later-round significant strikes are also kept for output-decay features.
 * Bouts list fighter *names*, not profile URLs -> names are mapped to profile
   URLs; the handful of duplicate names (e.g. two "Bruno Silva"s) are resolved
   by picking the profile whose listed weight is closest to the bout's division.
@@ -94,9 +95,17 @@ def _fight_totals(stats: pd.DataFrame) -> pd.DataFrame:
     for col, stem in INT_COLS.items():
         s[stem] = pd.to_numeric(stats[col], errors="coerce")
     s["ctrl_sec"] = stats["CTRL"].map(parse_clock)
+    r1 = stats["ROUND"].astype(str).str.strip().eq("Round 1").to_numpy()
+    for part, mask in (("r1", r1), ("late", ~r1)):
+        s[f"{part}_sig_landed"] = s["sig_landed"].where(mask)
+        s[f"{part}_sig_att"] = s["sig_att"].where(mask)
     s = s[stats["FIGHTER"].notna().values]
     value_cols = [c for c in s.columns if c not in ("event", "bout", "fighter")]
-    return s.groupby(["event", "bout", "fighter"], sort=False)[value_cols].sum(min_count=1).reset_index()
+    out = s.groupby(["event", "bout", "fighter"], sort=False)[value_cols].sum(min_count=1).reset_index()
+    # A fight that ended in round 1 has 0 (not unknown) late-round output when round 1 is known.
+    for c in ("late_sig_landed", "late_sig_att"):
+        out[c] = out[c].where(out[c].notna() | out["r1_sig_att"].isna(), 0.0)
+    return out
 
 
 def build_fights(m: dict[str, pd.DataFrame]) -> pd.DataFrame:

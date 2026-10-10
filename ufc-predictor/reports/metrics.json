@@ -67,15 +67,15 @@
       "n_fights": 935
     },
     "Logistic regression x Multinomial logistic": {
-      "log_loss_6way": 1.5695842611434552,
-      "accuracy_6way": 0.3433155080213904,
-      "accuracy_method": 0.5336898395721925,
+      "log_loss_6way": 1.5678553756474913,
+      "accuracy_6way": 0.34759358288770054,
+      "accuracy_method": 0.5315508021390374,
       "n_fights": 935
     },
     "Logistic regression x LightGBM multiclass": {
-      "log_loss_6way": 1.563896012641247,
-      "accuracy_6way": 0.35294117647058826,
-      "accuracy_method": 0.5304812834224599,
+      "log_loss_6way": 1.5651292877700178,
+      "accuracy_6way": 0.3518716577540107,
+      "accuracy_method": 0.5262032085561498,
       "n_fights": 935
     }
   },
@@ -93,31 +93,31 @@
       "n_fights": 1448
     },
     "Multinomial logistic": {
-      "log_loss_6way": 1.591302733164723,
-      "accuracy_6way": 0.324585635359116,
-      "accuracy_method": 0.5220994475138122,
+      "log_loss_6way": 1.5900187351518897,
+      "accuracy_6way": 0.32734806629834257,
+      "accuracy_method": 0.5200276243093923,
       "n_fights": 1448
     },
     "Logistic regression x Multinomial logistic": {
-      "log_loss_6way": 1.5852242953956093,
-      "accuracy_6way": 0.3328729281767956,
-      "accuracy_method": 0.524171270718232,
+      "log_loss_6way": 1.5837716763233947,
+      "accuracy_6way": 0.3335635359116022,
+      "accuracy_method": 0.5227900552486188,
       "n_fights": 1448
     },
     "LightGBM multiclass": {
-      "log_loss_6way": 1.5861307067358879,
-      "accuracy_6way": 0.3349447513812155,
-      "accuracy_method": 0.5145027624309392,
+      "log_loss_6way": 1.5831129557679358,
+      "accuracy_6way": 0.3446132596685083,
+      "accuracy_method": 0.5151933701657458,
       "n_fights": 1448
     },
     "Logistic regression x LightGBM multiclass": {
-      "log_loss_6way": 1.5810232190580646,
-      "accuracy_6way": 0.3349447513812155,
-      "accuracy_method": 0.518646408839779,
+      "log_loss_6way": 1.5802581571898022,
+      "accuracy_6way": 0.3383977900552486,
+      "accuracy_method": 0.5207182320441989,
       "n_fights": 1448
     }
   },
   "method_logistic_C": 0.001,
-  "method_lightgbm_trees": 111,
+  "method_lightgbm_trees": 126,
   "best_method_model": "LightGBM multiclass"
 }

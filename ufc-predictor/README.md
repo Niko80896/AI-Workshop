@@ -131,6 +131,7 @@ Per-fighter pre-fight features (the model sees `A − B` for each):
 | Activity | days since last fight |
 | Physical | age on fight day, height, reach, southpaw, plus a southpaw-vs-orthodox matchup flag |
 | Weight class | change vs the fighter's previous division (lbs; + = moving up; NaN for catchweight) |
+| Modern composites (method model only, see below) | striking differential/min, head strikes landed/absorbed per min, knockdowns suffered/15, output decay (round 2+ pace ÷ round 1 pace), late-round strike differential, control minutes per takedown, ground strikes per control minute, sub attempts per takedown |
 | Rating | Elo (pre-fight, K=80, tuned on pre-2024 fights), average opponent Elo |
 | Context | five-round fight, title fight, division limit (lbs), women's division |
 
@@ -182,6 +183,25 @@ minute:
 Weight-class moves turned out to carry no signal. Only 8% of bouts involve a
 move, and fighters moving up or down win at 64–66%, the same as the base rate.
 The feature ranks near the bottom.
+
+#### Modern composite metrics
+
+Striking differential, damage proxies, output decay ("gas tank") and grappling
+efficiency are computed leak-free, using round-1 vs later-round splits from the
+per-round stats. On the 2024+ test set they did **not** improve the winner model:
+
+| Winner model | Without | With |
+|---|---|---|
+| Logistic log loss | 0.6371 | 0.6406 |
+| LightGBM log loss | 0.6414 | 0.6402 |
+
+The existing landed/absorbed rates and recent differential already carry that
+signal. The method model improved slightly (6-way log loss 1.5861 → 1.5833), so
+the composites are used there only.
+
+UFC Savant's TSR, CCR and Chin ratings are not used. They are current
+snapshots, so training on them would leak each fighter's future, and the
+site's per-fight positional tracking isn't available historically.
 
 #### Against the betting market
 

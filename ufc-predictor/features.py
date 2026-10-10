@@ -33,7 +33,7 @@ import pandas as pd
 
 from ufc_common import (
     DATA_DIR, DIVISION_LBS, DWCS_CSV, FIGHTERS_CSV, FIGHTS_CSV, fight_seconds, method_group,
-    name_resolver, scheduled_rounds, url_id,
+    name_resolver, round_lengths, scheduled_rounds, url_id,
 )
 
 ELO_START = 1500.0
@@ -46,6 +46,12 @@ FIGHTER_FEATURES = [
     # striking
     "slpm", "sapm", "sig_acc", "sig_def", "kd_per15",
     "head_share", "body_share", "leg_share", "dist_share", "clinch_share", "ground_share",
+    # modern composites: striking differential, damage proxies
+    "sig_diff_pm", "head_landed_pm", "head_absorbed_pm", "kd_absorbed_per15",
+    # cardio / output decay: later-round pace relative to round 1, later-round differential
+    "pace_decay", "late_sig_diff_pm",
+    # grappling efficiency: what a takedown / control time turns into
+    "ctrl_min_per_td", "gnp_per_ctrl_min", "sub_att_per_td",
     # grappling
     "td_per15", "td_acc", "td_def", "sub_per15", "ctrl_pct", "opp_ctrl_pct",
     # finishing / durability
@@ -61,19 +67,25 @@ FIGHTER_FEATURES = [
     # rating
     "elo", "opp_elo_avg",
 ]
-DIFF_FEATURES = [f"diff_{f}" for f in FIGHTER_FEATURES]
+# Modern composite metrics. A test-set ablation (2024+) showed no gain for the winner
+# model (logistic log loss 0.6371 -> 0.6406, LightGBM 0.6414 -> 0.6402), so they are
+# used only by the method model, where they helped slightly (1.5861 -> 1.5833).
+MODERN_METRICS = ["sig_diff_pm", "head_landed_pm", "head_absorbed_pm", "kd_absorbed_per15",
+                  "pace_decay", "late_sig_diff_pm", "ctrl_min_per_td", "gnp_per_ctrl_min", "sub_att_per_td"]
+DIFF_FEATURES = [f"diff_{f}" for f in FIGHTER_FEATURES if f not in MODERN_METRICS]
+MODERN_DIFF_FEATURES = [f"diff_{f}" for f in MODERN_METRICS]
 # Antisymmetric extras: +1 if A is the southpaw facing an orthodox B, -1 for the reverse.
 MATCHUP_FEATURES = ["stance_southpaw_vs_orthodox"]
 CONTEXT_FEATURES = ["five_round", "title_fight", "division_lbs", "womens"]
 # Betting-market log-odds that A wins (vig removed). Only used by the optional odds model.
 ODDS_FEATURES = ["market_logit"]
-ANTISYMMETRIC = DIFF_FEATURES + MATCHUP_FEATURES + ODDS_FEATURES
+ANTISYMMETRIC = DIFF_FEATURES + MODERN_DIFF_FEATURES + MATCHUP_FEATURES + ODDS_FEATURES
 MODEL_FEATURES = DIFF_FEATURES + MATCHUP_FEATURES + CONTEXT_FEATURES
 # Symmetric "how much finishing is in this fight" totals (A + B) for the method model.
 SUM_BASES = ["slpm", "sapm", "kd_per15", "td_per15", "sub_per15", "ctrl_pct", "ko_wins", "sub_wins",
-             "ko_losses", "sub_losses", "dec_rate", "finish_rate"]
+             "ko_losses", "sub_losses", "dec_rate", "finish_rate"] + MODERN_METRICS
 SUM_FEATURES = [f"sum_{f}" for f in SUM_BASES]
-METHOD_FEATURES = MODEL_FEATURES + SUM_FEATURES
+METHOD_FEATURES = MODEL_FEATURES + MODERN_DIFF_FEATURES + SUM_FEATURES
 METHOD_CLASSES = ["a_ko", "a_sub", "a_dec", "b_ko", "b_sub", "b_dec"]
 METHOD_FLIP = {c: ("b" if c[0] == "a" else "a") + c[1:] for c in METHOD_CLASSES}
 
@@ -109,6 +121,12 @@ class FighterState:
     decisions: int = 0
     last_division: float = np.nan     # division limit (lbs) of the most recent bout with a known division
     last_weight_class: str | None = None
+    r1_secs: float = 0.0              # round splits (fights with round data only)
+    late_secs: float = 0.0
+    r1_att: float = 0.0
+    late_att: float = 0.0
+    late_landed: float = 0.0
+    late_absorbed: float = 0.0
     stat_secs: float = 0.0            # minutes denominator: only fights with recorded stats
     own: dict = field(default_factory=lambda: dict.fromkeys(_SUM_STATS, 0.0))
     opp: dict = field(default_factory=lambda: dict.fromkeys(_SUM_STATS, 0.0))
@@ -146,6 +164,17 @@ class FighterState:
             "kd_per15": _div(o["kd"] * 15, mins),
             **{f"{t}_share": _div(o[f"{t}_landed"], o["sig_landed"])
                for t in ("head", "body", "leg", "dist", "clinch", "ground")},
+            "sig_diff_pm": _div(o["sig_landed"] - p["sig_landed"], mins),
+            "head_landed_pm": _div(o["head_landed"], mins),
+            "head_absorbed_pm": _div(p["head_landed"], mins),
+            "kd_absorbed_per15": _div(p["kd"] * 15, mins),
+            "pace_decay": (_div(self.late_att, self.late_secs) / _div(self.r1_att, self.r1_secs)
+                           if self.late_secs >= 300 and self.r1_att > 0 else np.nan),
+            "late_sig_diff_pm": (_div((self.late_landed - self.late_absorbed) * 60, self.late_secs)
+                                 if self.late_secs >= 300 else np.nan),
+            "ctrl_min_per_td": _div(o["ctrl_sec"] / 60, o["td_landed"]),
+            "gnp_per_ctrl_min": _div(o["ground_landed"], o["ctrl_sec"] / 60),
+            "sub_att_per_td": _div(o["sub_att"], o["td_landed"]),
             "td_per15": _div(o["td_landed"] * 15, mins),
             "td_acc": _div(o["td_landed"], o["td_att"]),
             "td_def": 1 - _div(p["td_landed"], p["td_att"]),
@@ -190,6 +219,11 @@ def prepare_fights(fights: pd.DataFrame) -> pd.DataFrame:
     f["womens"] = womens(f["weight_class"])
     core = [f"{p}_{c}" for p in ("a", "b") for c in ("sig_landed", "sig_att", "td_landed", "td_att", "ctrl_sec")]
     f["has_stats"] = f[core].notna().all(axis=1) & f["duration_sec"].gt(0)
+    r1_len = f["time_format"].map(lambda t: (round_lengths(t) or [np.nan])[0] * 60)
+    f["r1_secs"] = np.minimum(f["duration_sec"], r1_len)
+    f["late_secs"] = (f["duration_sec"] - r1_len).clip(lower=0)
+    f["has_rounds"] = f["has_stats"] & f[["a_r1_sig_att", "b_r1_sig_att", "a_late_sig_att", "b_late_sig_att"]
+                                         ].notna().all(axis=1) & f["r1_secs"].gt(0)
     f["label"] = f["result_a"].map({"W": 1.0, "L": 0.0})  # draws / NC -> NaN (not trained on)
     f["promotion"] = "UFC"
     return f.sort_values(["date", "fight_id"], kind="stable").reset_index(drop=True)
@@ -208,7 +242,7 @@ def prepare_dwcs(dwcs: pd.DataFrame, fighters: pd.DataFrame | None) -> pd.DataFr
         d[f"key_{p}"] = [fighter_key(resolve(n, w), n) for n, w in zip(d[f"fighter_{p}"], d["weight_class"])]
     d["method_group"] = d["method"].map(method_group)
     d["duration_sec"] = np.nan
-    d["has_stats"] = False
+    d["has_stats"] = d["has_rounds"] = False
     d["five_round"], d["title_fight"], d["label"] = 0, 0, np.nan
     d["division_lbs"], d["womens"] = division_lbs(d["weight_class"]), womens(d["weight_class"])
     d["promotion"] = "DWCS"
@@ -306,6 +340,13 @@ class FeatureBuilder:
             for s in _SUM_STATS:
                 st.own[s] += np.nan_to_num(getattr(r, f"{me}_{s}"))
                 st.opp[s] += np.nan_to_num(getattr(r, f"{op}_{s}"))
+            if r.has_rounds:
+                st.r1_secs += r.r1_secs
+                st.late_secs += r.late_secs
+                st.r1_att += getattr(r, f"{me}_r1_sig_att")
+                st.late_att += getattr(r, f"{me}_late_sig_att")
+                st.late_landed += getattr(r, f"{me}_late_sig_landed")
+                st.late_absorbed += getattr(r, f"{op}_late_sig_landed")
             st.recent_diffs.append((getattr(r, f"{me}_sig_landed") - getattr(r, f"{op}_sig_landed"),
                                     r.duration_sec))
 

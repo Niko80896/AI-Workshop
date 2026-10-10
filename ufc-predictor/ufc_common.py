@@ -20,10 +20,13 @@ FIGHTERS_CSV = DATA_DIR / "fighters.csv"
 
 # Per-fighter, per-fight stat columns. Each is stored as ``a_<stat>`` and ``b_<stat>``.
 LANDED_ATTEMPTED = ["sig", "tot", "td", "head", "body", "leg", "dist", "clinch", "ground"]
+# Round splits of significant strikes: round 1 vs rounds 2+ ("late"), for output-decay features.
+ROUND_COLS = ["r1_sig_landed", "r1_sig_att", "late_sig_landed", "late_sig_att"]
 STAT_COLS = (
     ["kd"]
     + [f"{s}_{k}" for s in LANDED_ATTEMPTED for k in ("landed", "att")]
     + ["sub_att", "rev", "ctrl_sec"]
+    + ROUND_COLS
 )
 
 FIGHT_META_COLS = [

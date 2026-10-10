@@ -202,3 +202,24 @@ def test_weight_class_movement_and_durability():
     key = x.loc[0, "key_a"]
     row = b.matchup(key, x.loc[0, "key_b"], "2021-01-01", weight_class="Women's Flyweight")
     assert row["a_weight_change"] == 125 - 170 and row["womens"] == 1
+
+
+def test_output_decay_and_grappling_efficiency():
+    """Two 3-round decisions: late pace vs round-1 pace, late differential, control per takedown."""
+    fights, fighters = make_data(n_dates=1, fights_per_date=1)
+    f = pd.concat([fights] * 3, ignore_index=True)
+    f["fight_id"], f["date"] = ["a", "b", "c"], ["2020-01-01", "2020-06-01", "2020-09-01"]
+    f["result_a"], f["result_b"], f["method"] = "W", "L", "Decision - Unanimous"
+    f["end_round"], f["end_time"], f["time_format"] = 3, "5:00", "3 Rnd (5-5-5)"
+    f["a_r1_sig_att"], f["a_late_sig_att"] = 50.0, 60.0          # 10/min in R1, 6/min in R2-3
+    f["a_late_sig_landed"], f["b_late_sig_landed"] = 30.0, 20.0
+    f["b_r1_sig_att"], f["b_late_sig_att"] = 40.0, 80.0
+    f["a_ctrl_sec"], f["a_td_landed"], f["a_ground_landed"], f["a_sub_att"] = 120.0, 2.0, 10.0, 1.0
+    f["a_sig_landed"], f["b_sig_landed"] = 50.0, 35.0
+    x = build_features(f, fighters)[0].iloc[2]
+    assert x["a_pace_decay"] == pytest.approx((120 / 1200) / (100 / 600))   # 0.6: output drops 40%
+    assert x["b_pace_decay"] == pytest.approx((160 / 1200) / (80 / 600))
+    assert x["a_late_sig_diff_pm"] == pytest.approx((60 - 40) * 60 / 1200)
+    assert x["a_sig_diff_pm"] == pytest.approx((100 - 70) / 30)
+    assert x["a_ctrl_min_per_td"] == pytest.approx(4 / 4) and x["a_sub_att_per_td"] == pytest.approx(0.5)
+    assert x["a_gnp_per_ctrl_min"] == pytest.approx(20 / 4)
