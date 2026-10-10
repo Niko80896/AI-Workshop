@@ -262,6 +262,8 @@ def main():
     # Production models: one frozen before the 2025 postseason (honest 2025 demo),
     # one trained on everything (for 2026).
     train_production(df, res["params"], until="2025-09-29", name="through_2025_regular")
+    if df.date.max() >= pd.Timestamp("2026-09-29"):
+        train_production(df, res["params"], until="2026-09-29", name="through_2026_regular")
     train_production(df, res["params"], name="production")
     print("\nSaved models to", C.MODEL_DIR)
 
