@@ -134,6 +134,29 @@ def load_injuries(season: int, as_of, state, path=None) -> frozenset:
     return frozenset(out)
 
 
+def load_lineups(season: int, as_of, state, path=None) -> dict:
+    """Confirmed batting orders for the as-of date from data/manual/lineups.csv.
+
+    Returns {team: [player ids in batting order]}.
+    """
+    path = C.MANUAL_DIR / "lineups.csv" if path is None else Path(path)
+    if not path.exists():
+        return {}
+    lu = pd.read_csv(path, dtype=str).fillna("")
+    lu = lu[(lu["season"] == str(season)) & (pd.to_datetime(lu["date"]) == pd.Timestamp(as_of).normalize())]
+    out = {}
+    for team_name, g in lu.groupby("team"):
+        team = resolve_team(team_name)
+        ids = []
+        for name in g.sort_values("order", key=lambda o: o.astype(int))["player"]:
+            pid = resolve_player(name, team, state)
+            m = _players[_players["name"].str.lower() == name.strip().lower()]["player_id"]
+            on_team = [p for p in m if p in state.team_players[team]]
+            ids.append(on_team[0] if on_team else pid)
+        out[team] = ids
+    return out
+
+
 def actual_postseason_games(season: int, as_of) -> pd.DataFrame:
     """Completed postseason games before ``as_of`` (Retrosheet or manual CSV)."""
     g = data.load("games")
@@ -170,6 +193,7 @@ class PlayoffSimulator:
         self.state = F.state_as_of(self.as_of)
         self.model = load_model(model_name or self.bracket.get("model", "production"))
         self.out = load_injuries(season, self.as_of, self.state, injuries)
+        self.state.fixed_lineups = load_lineups(season, self.as_of, self.state)
         self.min_rest = self.bracket.get("min_rest_days", 4)
         self.day0 = self.as_of.toordinal()
         self.calendar = self._calendar(cal, wc_start)

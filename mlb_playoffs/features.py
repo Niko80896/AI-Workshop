@@ -36,6 +36,8 @@ HL_BATTER = 240
 HL_ROSTER = 20       # who is playing regularly for a team right now
 HL_RELIEF = 30
 ROSTER_WINDOW = 21   # a player is on the active roster if he played in the last N days
+# Expected plate appearances per game by batting-order slot (confirmed lineups).
+SLOT_PA = [4.65, 4.55, 4.45, 4.35, 4.25, 4.15, 4.05, 3.95, 3.85]
 
 ELO_K = 4.0
 ELO_HFA = 24.0
@@ -318,11 +320,18 @@ class LeagueState:
     def lineup(self, team, opp_hand, day, out: frozenset = frozenset()) -> dict:
         """Playing-time weighted lineup quality against a pitcher hand.
 
-        Unavailable players' playing time goes to replacement level.
+        Unavailable players' playing time goes to replacement level. A confirmed
+        batting order in ``fixed_lineups`` (set by the simulator from
+        data/manual/lineups.csv) replaces the playing-time weights.
         """
-        w = self.roster(team, day, out)
-        lost = sum(self.roster_pa.get((team, p), day)[0] for p in out
-                   if self.last_played.get((team, p), -999) >= day - ROSTER_WINDOW)
+        fixed = getattr(self, "fixed_lineups", {}).get(team)
+        if fixed:
+            w = {p: SLOT_PA[i % len(SLOT_PA)] for i, p in enumerate(fixed)}
+            lost = 0.0
+        else:
+            w = self.roster(team, day, out)
+            lost = sum(self.roster_pa.get((team, p), day)[0] for p in out
+                       if self.last_played.get((team, p), -999) >= day - ROSTER_WINDOW)
         tot = sum(w.values()) + lost
         lg = self.lg_woba(day)
         if tot <= 0:
