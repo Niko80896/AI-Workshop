@@ -24,7 +24,7 @@
 - Use real personal data. Fake names and fake content only.
 - Run, import, or re-implement the prediction model, or write to the predictions table from the website.
 - Build anything listed under Backlog in roadmap.md.
-- Edit roadmap.md, project-state.md, or CLAUDE.md, unless the prompt is a documentation prompt that says to.
+- Edit CLAUDE.md, unless the prompt is a documentation prompt that says to.
 - Merge a pull request unless the prompt explicitly says to.
 
 ## Conventions
@@ -37,6 +37,7 @@
 - Like and dislike counts are visible to all signed-in users, but each person can only add, switch, or remove their own reaction.
 - Games are listed by date, soonest first. The data has no start time, so games on the same date are ordered by away team name, A to Z.
 - Work on your own branch. When finished, push the branch and open a draft pull request, then stop.
+- Before opening a pull request, update roadmap.md and project-state.md to match the work in it.
 
 ## Current focus
 See roadmap.md, work only on the slice marked ACTIVE.
