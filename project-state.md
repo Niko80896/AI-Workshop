@@ -3,7 +3,7 @@ Last updated: 2026-10-13
 ## Works
 - The Next.js site (App Router, TypeScript, plain CSS) is live on Vercel at https://ai-workshop-blush-nine.vercel.app
 - Slice 1 is live (PR #4, merged 2026-10-09): sign-up at /signup, log-in at /login, and a protected /picks page that shows "Signed in as <email>" and a Log out button. Logged-out visits to /picks go to /login. A wrong password shows "Wrong email or password." Sessions survive closing the browser. Checked on the live site and the preview.
-- Slice 2 code is on main (PR #6, merged): /picks lists every row of the predictions table, soonest date first (same date: away team A to Z), each with labeled date, away, home, predicted winner and win percent, F5 winner, and projected total runs. It reads the table on every visit, so new rows show up on refresh without a redeploy. Not yet checked against the Slice 2 done-criteria.
+- Slice 2 code is on main (PR #6, merged): /picks lists every row of the predictions table, soonest date first (same date: away team A to Z), each with labeled date, away, home, predicted winner and win percent, F5 winner, and projected total runs. It reads the table on every visit, so new rows show up on refresh without a redeploy.
 - Slice 2 is done (checked on the PR #9 preview). A signed-in visitor can open /picks and see every game's date, away and home teams, predicted winner and win percent, F5 winner, and projected total runs, with the soonest game first. Logged-out visitors who go to /picks are sent to /login.
 - The predictions table exists in Supabase with row-level security on. Its only rule lets signed-in users read; nobody can add, change, or delete rows through the website. Columns: id, game_date, away_team, home_team, predicted_winner, win_pct (0 to 100), f5_winner, projected_total, created_at.
 - The site uses Supabase Auth. Test accounts tester1@example.com and tester2@example.com exist.
@@ -27,5 +27,5 @@ Last updated: 2026-10-13
 - Keys and passwords live only in Vercel > ai-workshop > Settings > Environment Variables. Never in chat, prompts, or repo files.
 - Test accounts use fake emails only (tester1@example.com and similar).
 ## Next session
-- Slice 2 (Predictions page) is ACTIVE. See roadmap.md.
-- The predictions table already exists. Niko loads the three Slice 2 test rows from roadmap.md in the Supabase SQL editor, checks the four done-criteria on the "Slice 2" pull request's preview link, then marks Slice 2 done. Win percent is stored as a number from 0 to 100 (for example 62.5). Delete the Test rows before loading real predictions.
+- Slice 3 (Like and dislike predictions) is ACTIVE. See roadmap.md.
+- Slice 3's Setup needs the four Slice 2 test rows (Test Cubs, Test Hawks, Test Lions, Test Bears). They are already in the predictions table, alongside one real game (White Sox at Guardians).
