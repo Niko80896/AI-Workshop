@@ -11,7 +11,7 @@ Last updated: 2026-10-13
 ## Broken or flaky
 - Supabase project is new (created 2026-10-08 because the Session 1 one was missing); linking from Session 1 not confirmed with instructor.
 - If Supabase refuses a login for a reason other than a wrong password (for example too many attempts), /login shows Supabase's own message instead of "Wrong email or password."
-- The predictions table holds one real row (Chicago White Sox at Cleveland Guardians, 2026-10-10). Slice 2 criterion (2) expects exactly three rows, so this row must be removed (or set aside) before checking Slice 2.
+- Real predictions and test rows share one table. Slice 2's criteria check the order of the test rows, not the total count.
 - Nothing else known to be broken.
 ## Environment notes
 - Stack: Next.js 16 (App Router), TypeScript, plain CSS, Supabase, Vercel.
