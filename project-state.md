@@ -24,7 +24,7 @@ Last updated: 2026-10-13
 - Branch claude/tender-fermat-a5sg8b holds old model code from a mistaken session. Never merge it.
 - Every branch pushed to GitHub gets a Vercel preview link on its pull request. Merging to main deploys the live site.
 - Keys and passwords live only in Vercel > ai-workshop > Settings > Environment Variables. Never in chat, prompts, or repo files.
-- Test accounts use fake emails only (tester1@example.com and similar).
+- Test accounts are tester1@example.com, tester2@example.com, and tester3@gmail.com (Niko's own test account). Any new test accounts use @example.com addresses only.
 ## Next session
 - Slice 3 (Like and dislike predictions) is ACTIVE. See roadmap.md.
 - Slice 3's Setup needs the four Slice 2 test rows (Test Cubs, Test Hawks, Test Lions, Test Bears). They are already in the predictions table, alongside one real game (White Sox at Guardians).
