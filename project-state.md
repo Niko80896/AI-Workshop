@@ -1,14 +1,18 @@
 # Project state
-Last updated: 2026-10-09
+Last updated: 2026-10-13
 ## Works
 - The Next.js site (App Router, TypeScript, plain CSS) is live on Vercel at https://ai-workshop-blush-nine.vercel.app
 - Slice 1 is live (PR #4, merged 2026-10-09): sign-up at /signup, log-in at /login, and a protected /picks page that shows "Signed in as <email>" and a Log out button. Logged-out visits to /picks go to /login. A wrong password shows "Wrong email or password." Sessions survive closing the browser. Checked on the live site and the preview.
+- Slice 2 code is on main (PR #6, merged): /picks lists every row of the predictions table, soonest date first (same date: away team A to Z), each with labeled date, away, home, predicted winner and win percent, F5 winner, and projected total runs. It reads the table on every visit, so new rows show up on refresh without a redeploy.
+- Slice 2 is done (checked on the PR #9 preview). A signed-in visitor can open /picks and see every game's date, away and home teams, predicted winner and win percent, F5 winner, and projected total runs, with the soonest game first. Logged-out visitors who go to /picks are sent to /login.
+- The predictions table exists in Supabase with row-level security on. Its only rule lets signed-in users read; nobody can add, change, or delete rows through the website. Columns: id, game_date, away_team, home_team, predicted_winner, win_pct (0 to 100), f5_winner, projected_total, created_at.
 - The site uses Supabase Auth. Test accounts tester1@example.com and tester2@example.com exist.
 - The GitHub repo Niko80896/AI-Workshop exists, default branch main.
 - The homepage is still the personal site from Session 1, unchanged.
 ## Broken or flaky
 - Supabase project is new (created 2026-10-08 because the Session 1 one was missing); linking from Session 1 not confirmed with instructor.
 - If Supabase refuses a login for a reason other than a wrong password (for example too many attempts), /login shows Supabase's own message instead of "Wrong email or password."
+- Real predictions and test rows share one table. Slice 2's criteria check the order of the test rows, not the total count.
 - Nothing else known to be broken.
 ## Environment notes
 - Stack: Next.js 16 (App Router), TypeScript, plain CSS, Supabase, Vercel.
@@ -23,5 +27,5 @@ Last updated: 2026-10-09
 - Keys and passwords live only in Vercel > ai-workshop > Settings > Environment Variables. Never in chat, prompts, or repo files.
 - Test accounts use fake emails only (tester1@example.com and similar).
 ## Next session
-- Slice 2 (Predictions page) is ACTIVE. See roadmap.md.
-- Claude Code will write the SQL for the predictions table, with row-level security so only signed-in users can read it. Niko runs it in the Supabase SQL editor and loads the test rows listed in roadmap.md. Win percent is stored as a number from 0 to 100 (for example 62.5). Delete the Test rows before loading real predictions.
+- Slice 3 (Like and dislike predictions) is ACTIVE. See roadmap.md.
+- Slice 3's Setup needs the four Slice 2 test rows (Test Cubs, Test Hawks, Test Lions, Test Bears). They are already in the predictions table, alongside one real game (White Sox at Guardians).
