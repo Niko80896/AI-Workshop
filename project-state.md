@@ -1,5 +1,5 @@
 # Project state
-Last updated: 2026-10-13
+Last updated: 2026-10-14
 ## Works
 - The Next.js site (App Router, TypeScript, plain CSS) is live on Vercel at https://ai-workshop-blush-nine.vercel.app
 - Slice 1 is live (PR #4, merged 2026-10-09): sign-up at /signup, log-in at /login, and a protected /picks page that shows "Signed in as <email>" and a Log out button. Logged-out visits to /picks go to /login. A wrong password shows "Wrong email or password." Sessions survive closing the browser. Checked on the live site and the preview.
@@ -25,6 +25,7 @@ Last updated: 2026-10-13
 - Every branch pushed to GitHub gets a Vercel preview link on its pull request. Merging to main deploys the live site.
 - Keys and passwords live only in Vercel > ai-workshop > Settings > Environment Variables. Never in chat, prompts, or repo files.
 - Test accounts are tester1@example.com, tester2@example.com, and tester3@gmail.com (Niko's own test account). Any new test accounts use @example.com addresses only.
+- Predictions table holds real rows only, loaded by Niko by hand in Supabase: Chicago White Sox at Cleveland Guardians (2026-10-10) and Milwaukee Brewers at Los Angeles Dodgers (2026-10-14). The four Test rows were deleted on 2026-10-14.
 ## Next session
 - Slice 3 (Like and dislike predictions) is ACTIVE. See roadmap.md.
-- Slice 3's Setup needs the four Slice 2 test rows (Test Cubs, Test Hawks, Test Lions, Test Bears). They are already in the predictions table, alongside one real game (White Sox at Guardians).
+- Before checking Slice 3, reload the Test rows described in the Slice 2 setup in roadmap.md (at least Test Hawks at Test Owls and Test Lions at Test Sharks), because the Slice 3 done-criteria need them. Delete them again after Slice 3 passes.
