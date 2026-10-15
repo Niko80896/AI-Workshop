@@ -161,3 +161,26 @@ button {
 .game dd {
   margin: 0;
 }
+
+.tabs {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1.25rem;
+}
+
+.tab {
+  padding: 0.4rem 0.9rem;
+  border: 1px solid #d5dbe3;
+  border-radius: 6px;
+  text-decoration: none;
+}
+
+.tab-selected {
+  background: #1b2a4a;
+  border-color: #1b2a4a;
+  color: #ffffff;
+}
+
+.tab-selected:hover {
+  color: #ffffff;
+}
