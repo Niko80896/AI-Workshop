@@ -157,6 +157,31 @@ def load_lineups(season: int, as_of, state, path=None) -> dict:
     return out
 
 
+def load_pitching_plans(season: int, as_of, state, path=None) -> dict:
+    """Planned opener / bullpen games for the as-of date from data/manual/pitching_plans.csv.
+
+    Each row is one pitcher and his expected innings. Several rows sharing a
+    ``group`` (e.g. "bulk") split that group's innings evenly, for when it is
+    known who might pitch but not who will. Returns {(team, day): [(player id, ip)]}.
+    """
+    path = C.MANUAL_DIR / "pitching_plans.csv" if path is None else Path(path)
+    if not path.exists():
+        return {}
+    pp = pd.read_csv(path, dtype=str).fillna("")
+    pp = pp[(pp["season"] == str(season)) & (pd.to_datetime(pp["date"]) == pd.Timestamp(as_of).normalize())]
+    day = pd.Timestamp(as_of).toordinal()
+    out = {}
+    for team_name, g in pp.groupby("team"):
+        team = resolve_team(team_name)
+        plan = []
+        for grp, gg in g.groupby("group", sort=False):
+            for _, r in gg.iterrows():
+                ip = float(r["ip"]) / (len(gg) if grp else 1)
+                plan.append((resolve_player(r["player"], team, state), ip))
+        out[(team, day)] = plan
+    return out
+
+
 def actual_postseason_games(season: int, as_of) -> pd.DataFrame:
     """Completed postseason games before ``as_of`` (Retrosheet or manual CSV)."""
     g = data.load("games")
@@ -194,6 +219,7 @@ class PlayoffSimulator:
         self.model = load_model(model_name or self.bracket.get("model", "production"))
         self.out = load_injuries(season, self.as_of, self.state, injuries)
         self.state.fixed_lineups = load_lineups(season, self.as_of, self.state)
+        self.state.pitching_plans = load_pitching_plans(season, self.as_of, self.state)
         self.min_rest = self.bracket.get("min_rest_days", 4)
         self.day0 = self.as_of.toordinal()
         self.calendar = self._calendar(cal, wc_start)

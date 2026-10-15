@@ -223,6 +223,26 @@ class LeagueState:
         return {"fip": fip, "xfip": xfip, "kbb": K - BB, "k": K, "era": 27 * er / outs, "whip": whip,
                 "depth": depth, "bf": bf, "throws": self.throws.get(pid, "R")}
 
+    def starter_line(self, team, sp, day) -> dict:
+        """The starter's line, or a blend for a planned opener / bullpen game.
+
+        A plan in ``pitching_plans`` (set by the simulator from
+        data/manual/pitching_plans.csv) lists the pitchers expected to cover
+        the start of the game and their innings. Rate stats are weighted by
+        planned innings, and depth is the planned innings in total, since
+        the bullpen features cover the rest of the game.
+        """
+        plan = getattr(self, "pitching_plans", {}).get((team, day))
+        line = self.pitcher_line(sp, day)
+        if not plan:
+            return {**line, "lhp_share": float(line["throws"] == "L")}
+        lines = [(self.pitcher_line(p, day), ip) for p, ip in plan]
+        tot = sum(ip for _, ip in lines)
+        blend = {k: sum(ln[k] * ip for ln, ip in lines) / tot
+                 for k in ("fip", "xfip", "kbb", "k", "era", "whip")}
+        lhp = sum(ip for ln, ip in lines if ln["throws"] == "L") / tot
+        return {**blend, "depth": tot, "bf": line["bf"], "throws": line["throws"], "lhp_share": lhp}
+
     def days_rest(self, pid, day) -> int:
         app = self.appearances.get(pid)
         if not app:
@@ -349,6 +369,13 @@ class LeagueState:
     # ------------------------------------------------------------------ #
     # Team-level
     # ------------------------------------------------------------------ #
+    def _lineup_vs(self, team, lhp_share, day, out) -> dict:
+        """Lineup against the opposing starting pitching, mixing hands when it is split."""
+        if lhp_share in (0.0, 1.0):
+            return self.lineup(team, "L" if lhp_share else "R", day, out)
+        vl, vr = self.lineup(team, "L", day, out), self.lineup(team, "R", day, out)
+        return {k: lhp_share * vl[k] + (1 - lhp_share) * vr[k] for k in vl}
+
     def team_line(self, team, day) -> dict:
         lgv = self.league_runs.get("all", day)
         lg_rpg = lgv[0] / lgv[2] if lgv[2] > 50 else 4.5
@@ -379,9 +406,9 @@ class LeagueState:
             sp_rest: optional (home_sp_rest, away_sp_rest) override.
         """
         th, ta = self.team_line(home, day), self.team_line(away, day)
-        sh, sa = self.pitcher_line(home_sp, day), self.pitcher_line(away_sp, day)
-        lh = self.lineup(home, sa["throws"], day, out)
-        la = self.lineup(away, sh["throws"], day, out)
+        sh, sa = self.starter_line(home, home_sp, day), self.starter_line(away, away_sp, day)
+        lh = self._lineup_vs(home, sa["lhp_share"], day, out)
+        la = self._lineup_vs(away, sh["lhp_share"], day, out)
         bh, ba = self.bullpen(home, day, out=out), self.bullpen(away, day, out=out)
         if rest is None:
             rest = (min(day - self.team_last_game.get(home, day - 5) - 1, 4),

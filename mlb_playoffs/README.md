@@ -95,6 +95,14 @@ drop out.
 reliever leaves the top-5 bullpen, and an injured hitter's playing time goes
 to replacement level.
 
+**Openers and bullpen games are manual.** Add rows to
+`data/manual/pitching_plans.csv`: one per pitcher expected to cover the start
+of the game, with planned innings (true innings, so 1.2 IP = 1.67). Rows that
+share a `group` split that group's innings evenly, for when the possible bulk
+arms are known but not which one pitches. The starter features then blend
+those pitchers by innings, and depth becomes the planned total. A plan applies
+only on its own date.
+
 **Leakage tests** (`tests/test_leakage.py`) scramble every score and stat line
 from a cutoff date onward and assert that features up to that date are
 bit-for-bit unchanged. They also check that a game's own result never affects

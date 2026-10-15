@@ -53,9 +53,10 @@ def comparison_table(sim: PlayoffSimulator, a: str, b: str, sp_a: str, sp_b: str
     st, day = sim.state, sim.day0
     rows = []
     ta, tb = st.team_line(a, day), st.team_line(b, day)
-    la_line, lb_line = st.pitcher_line(sp_a, day), st.pitcher_line(sp_b, day)
-    lin_a = st.lineup(a, lb_line["throws"], day, sim.out)
-    lin_b = st.lineup(b, la_line["throws"], day, sim.out)
+    la_line, lb_line = st.starter_line(a, sp_a, day), st.starter_line(b, sp_b, day)
+    lin_a = st._lineup_vs(a, lb_line["lhp_share"], day, sim.out)
+    lin_b = st._lineup_vs(b, la_line["lhp_share"], day, sim.out)
+    plans = getattr(st, "pitching_plans", {})
     pa, pb = st.bullpen(a, day, out=sim.out), st.bullpen(b, day, out=sim.out)
     rec = sim.records
 
@@ -73,8 +74,8 @@ def comparison_table(sim: PlayoffSimulator, a: str, b: str, sp_a: str, sp_b: str
     add("Lineup ISO", lin_a["iso"], lin_b["iso"], "{:.3f}")
     add("Lineup K%", lin_a["k"], lin_b["k"], "{:.1%}", "low")
     add("Starter", 0, 0, "")
-    rows[-1].update({display(a): f"{pname(sp_a)} ({la_line['throws']})",
-                     display(b): f"{pname(sp_b)} ({lb_line['throws']})", "edge": ""})
+    rows[-1].update({display(t): f"{pname(sp)} ({ln['throws']})" + (" + plan" if (t, day) in plans else "")
+                     for t, sp, ln in ((a, sp_a, la_line), (b, sp_b, lb_line))} | {"edge": ""})
     add("  Starter FIP", la_line["fip"], lb_line["fip"], "{:.2f}", "low")
     add("  Starter xFIP", la_line["xfip"], lb_line["xfip"], "{:.2f}", "low")
     add("  Starter K-BB%", la_line["kbb"], lb_line["kbb"], "{:.1%}")
@@ -208,6 +209,12 @@ def cmd_game(args):
 
     print(f"\n{display(away)} @ {display(home)}  —  as of {sim.as_of.date()}")
     print(f"Starters: {pname(asp)} vs {pname(hsp)}")
+    for t in (away, home):
+        plan = getattr(sim.state, "pitching_plans", {}).get((t, day))
+        if plan:
+            print(f"  {display(t)} pitching plan (pitching_plans.csv): "
+                  + ", ".join(f"{pname(p)} {ip:.2f} IP" for p, ip in plan)
+                  + "; the starter stats below blend these by innings")
     print(f"\n  {display(home):4s} {pct(p):>6s}   {'█' * round(p * 40)}")
     print(f"  {display(away):4s} {pct(1 - p):>6s}   {'█' * round((1 - p) * 40)}")
     print("\nTop factors:")
