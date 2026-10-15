@@ -8,11 +8,23 @@ type Prediction = {
   game_date: string;
   away_team: string;
   home_team: string;
-  predicted_winner: string;
-  win_pct: number;
-  f5_winner: string;
-  projected_total: number;
+  // These four are empty (null) until the model has a prediction for the game.
+  predicted_winner: string | null;
+  win_pct: number | null;
+  f5_winner: string | null;
+  projected_total: number | null;
 };
+
+// A game counts as pending if any prediction field is empty, so the page
+// never prints "null" or "NaN".
+function isPending(g: Prediction): boolean {
+  return (
+    g.predicted_winner === null ||
+    g.win_pct === null ||
+    g.f5_winner === null ||
+    g.projected_total === null
+  );
+}
 
 type Tab = "past" | "upcoming" | "future";
 
@@ -115,15 +127,20 @@ export default async function PicksPage({
               <dd>{game.away_team}</dd>
               <dt>Home</dt>
               <dd>{game.home_team}</dd>
-              <dt>Predicted winner</dt>
-              <dd>
-                {game.predicted_winner} {Number(game.win_pct).toFixed(1)}%
-              </dd>
-              <dt>F5 winner</dt>
-              <dd>{game.f5_winner}</dd>
-              <dt>Projected total runs</dt>
-              <dd>{Number(game.projected_total).toFixed(1)}</dd>
+              {!isPending(game) && (
+                <>
+                  <dt>Predicted winner</dt>
+                  <dd>
+                    {game.predicted_winner} {Number(game.win_pct).toFixed(1)}%
+                  </dd>
+                  <dt>F5 winner</dt>
+                  <dd>{game.f5_winner}</dd>
+                  <dt>Projected total runs</dt>
+                  <dd>{Number(game.projected_total).toFixed(1)}</dd>
+                </>
+              )}
             </dl>
+            {isPending(game) && <p>Prediction pending, starters not confirmed</p>}
           </li>
         ))}
       </ul>
